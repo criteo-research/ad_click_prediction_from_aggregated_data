@@ -1,4 +1,0 @@
-coverage
-pytest-benchmark
-pylama
-tox
