@@ -20,13 +20,19 @@ class SampleSet:
         decollapseGibbs=False,
         sampleFromPY0=False,
         maxNbRowsperGibbsUpdate=50,
+        data=None,
+        weights=None
     ):
         self.projections = projections
         self.decollapseGibbs = decollapseGibbs
         self.sampleFromPY0 = sampleFromPY0
         self.features = [p.feature for p in projections]
-        self.featurenames = [f.Name for f in self.features]
-        if nbSamples is None:
+        self.featurenames = [f.Name for f in self.features]        
+        self.use_spark_rdd = False
+        self.allcrossmods = False
+        if data is not None: 
+            self.data = data        
+        elif nbSamples is None:
             df = self.buildCrossmodsSample()
             self.data = df[self.featurenames].values.transpose()
         else:
@@ -34,12 +40,16 @@ class SampleSet:
 
         self.Size = len(self.data[0])
 
-        self.probaIndep = self.computeProbaIndep()
-        self.probaSamples = self.probaIndep
-        self.setweights()
+        
+        if weights is not None:
+            self.weights = weights
+        else:
+            self.probaIndep = self.computeProbaIndep()
+            self.probaSamples = self.probaIndep
+            self.setweights()
         self.expmu = None
         self.explambda = None
-        self.use_spark_rdd = False
+        self.prediction = None
 
     def setweights(self):
         if self.allcrossmods:
@@ -84,15 +94,27 @@ class SampleSet:
 
         self.pdisplays = self.Eclick + self.Enoclick
         
-    def Predict(self, model):
-        expmu, explambda = model.computedotprods(self)
-        self.expmu = expmu
-        self.explambda = explambda
+    def PredictInternal(self, model):
+        model.computedotprods(self)
         self.applyreweighting(model.muIntercept, model.lambdaIntercept)
+        self.compute_prediction(model)
+
+    def compute_prediction(self, model):
+        predict = model.parameters * 0
+        for w in model.displayWeights.values():
+            predict[w.indices] = w.feature.Project_(self.data, self.pdisplays)  # Correct for grads
+        for w in model.clickWeights.values():
+            predict[w.indices] = w.feature.Project_(self.data, self.Eclick)
+        if self.prediction is not None and not ((predict!=self.prediction).any()):
+            raise Exception('Doing twice the same prediction')
+        self.prediction = predict
+        
+    def GetPrediction(self, model):
+        return self.prediction
         
     def UpdateSampleWithGibbs(self, model):
         self.data = model.RunParallelGibbsSampler(
-                self, nbsteps=model.nbsteps, maxNbRows=model.maxNbRowsperGibbsUpdate
+                self, maxNbRows=model.maxNbRowsperGibbsUpdate
             )
         
     def UpdateSampleWeights(self, model):

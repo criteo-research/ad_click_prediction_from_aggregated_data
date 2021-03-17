@@ -20,7 +20,7 @@ class SampleRdd:
         decollapseGibbs=False,
         sampleFromPY0=False,
         maxNbRowsperGibbsUpdate=50,
-        samplesRdd=None
+        data=None
     ):
         self.projections = projections
         self.decollapseGibbs = decollapseGibbs
@@ -28,32 +28,32 @@ class SampleRdd:
         self.features = [p.feature for p in projections]
         self.featurenames = [f.Name for f in self.features]
         self.Size = nbSamples
-        self.samplesRdd = samplesRdd
+        self.data = data
+        self.allcrossmods = False
         self.use_spark_rdd = True
+        self.prediction = None
 
     def UpdateSampleWithGibbs(self, model):
-        # Cannot cache + unpersist when checkpointing
-        # previousRdd = self.samplesRdd
-        self.samplesRdd = model.updateSamplesWithGibbsRdd(self.samplesRdd)
-        self.samplesRdd.cache()
-        self.samplesRdd.localCheckpoint()
-        # Unpersist yields error after checkpoint because previousRdd has been GCed
-        # previousRdd.unpersist()
-        rdd_xwmulambs = model.compute_rdd_expdotproducts(self.samplesRdd)
+        self.data = model.updateSamplesWithGibbsRdd(self.data)
+        self.data.cache()
+        self.data.localCheckpoint()
+        
+    def UpdateSampleWeights(self, model):
+        rdd_xwmulambs = model.compute_rdd_expdotproducts(self.data)
         rdd_xwmulambs.cache()
-        rdd_p_display = model.compute_enoclick_eclick(rdd_xwmulambs)
-        rdd_p_display.cache()
+        rdd_weighted = model.compute_weights(rdd_xwmulambs)
+        rdd_weighted.cache()
         rdd_xwmulambs.unpersist()
-        self.predictions, z0 = model.getPredictionsVectorRdd(rdd_p_display)
-        self.predictions /= z0
-        rdd_p_display.unpersist()
+        self.data = model.compute_enoclick_eclick_withweight(rdd_weighted)
+        self.data.localCheckpoint()
 
-    def Predict(self, model):        
-        rdd_xwexpmulambs = model.compute_rdd_expdotproducts(self.samplesRdd)
-        rdd_xwexpmulambs.cache()
-        rdd_p_display = model.compute_enoclick_eclick_withweight(rdd_xwexpmulambs)
-        rdd_p_display.cache()
-        rdd_xwexpmulambs.unpersist()
-        pdisplays, z0_on_z = model.getPredictionsVectorRdd(rdd_p_display)
-        self.pdisplays = pdisplays/z0_on_z
-        rdd_p_display.unpersist()
+    def PredictInternal(self, model):
+        self.UpdateSampleWeights(model)
+        pdisplays, z0_on_z = model.getPredictionsVectorRdd(self.data)
+        predict = pdisplays*self.Size/z0_on_z
+        if self.prediction is not None and not ((predict!=self.prediction).any()):
+            raise Exception('Doing twice the same prediction')
+        self.prediction = predict
+        
+    def GetPrediction(self, model):
+        return self.prediction
