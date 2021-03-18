@@ -96,8 +96,8 @@ class SampleSet:
         
     def PredictInternal(self, model):
         model.computedotprods(self)
-        self.applyreweighting(model.muIntercept, model.lambdaIntercept)
-        
+        self.applyreweighting(model.muIntercept, model.lambdaIntercept)        
+        self.compute_prediction(model)
 
     def compute_prediction(self, model):
         predict = model.parameters * 0
@@ -108,7 +108,6 @@ class SampleSet:
         self.prediction = predict
         
     def GetPrediction(self, model):
-        self.compute_prediction(model)
         return self.prediction
         
     def UpdateSampleWithGibbs(self, model):
@@ -121,6 +120,7 @@ class SampleSet:
         self.computeProbaSamples(model.muIntercept, model.lambdaIntercept)
         self.setweights()
         self.applyreweighting(model.muIntercept, model.lambdaIntercept)
+        self.compute_prediction(model)
 
     def sampleY(self):
         pclick = self.explambda / (self.expmu + self.explambda)

@@ -208,11 +208,14 @@ class AggMRFModel(BaseAggModel):
         if (self.parameters != x).any():
             self.parameters = x
             
-            if self.sparkSession:
+            if self.sparkSession and self.variableMRFParameters is not None:
+                self.variableMRFParameters.unpersist()
                 self.variableMRFParameters = self.sparkSession.sparkContext.broadcast(
                     VariableMRFParameters(self.parameters)
                 )
             self.update()
+        else:
+            pass
 
     def predictDFinternal(self, df):
         # compute dot product on each line
@@ -247,12 +250,23 @@ class AggMRFModel(BaseAggModel):
             samples.UpdateSampleWithGibbs(self)
         samples.UpdateSampleWeights(self)
 
-    def compute_rdd_expdotproducts(self, rdd_samplesWithWeights):  
+    def compute_rdd_expdotproducts(self, rdd_samples_weights):
+        """
+        Input: RDD containing tuple x,w,(...)
+            x: matrix (K,F) of K samples with F features
+            w: vector of K weights
+            (...): potential leftover from previous iterations, ignored
+            
+        Output:  RDD containing tuple x,w,expmu,explambda
+            x, w: unchanged
+            expmu: exp of dotproducts for display parameters
+            explambda: expo of dotproducts for clicks parameters
+        """
         constantMRFParameters = self.constantMRFParameters
         variableMRFParameters = self.variableMRFParameters
 
-        def expdotproducts(tuple_x_weights):
-            x, w = tuple_x_weights[0], tuple_x_weights[1]
+        def expdotproducts(samples_weights):
+            x, w = samples_weights[0], samples_weights[1]
             t_x = x.transpose()
             mus = np.zeros(x.shape[0])
             lambdas = np.zeros(x.shape[0])
@@ -264,32 +278,58 @@ class AggMRFModel(BaseAggModel):
             explambda = expmu * np.exp(lambdas + constantMRFParameters.value.lambdaIntercept)
             return x, w, expmu, explambda
 
-        return rdd_samplesWithWeights.map(expdotproducts)
+        return rdd_samples_weights.map(expdotproducts)
     
-    def compute_weights(self, rdd_xwmulambs):
-        
+    def compute_weights(self, rdd_samples_weights_with_expdotproducts):
+        """
+        Input: RDD containing tuple x,w,expmu,explambda
+            x: matrix (K,F) of K samples with F features
+            w: vector of K weights
+            expmu: exp of dotproducts for display parameters
+            explambda: expo of dotproducts for clicks parameters
+
+        Output: RDD containing tuple x,w,expmu,explambda
+            x: unchanged 
+            w: udpated weights from prediction
+            expmu: unchanged
+            explambda: unchanged
+        """
         constantMRFParameters = self.constantMRFParameters
 
-        def _computeWeightFromPY0(tuple_x_weights_exp_mu_lambda):
-            x, w, expmu, explambda = tuple_x_weights_exp_mu_lambda
+        def _computeWeightFromPY0(samples_weights_exp_mu_lambda):
+            x, w, expmu, explambda = samples_weights_exp_mu_lambda
             w = constantMRFParameters.value.norm / expmu / constantMRFParameters.value.nbSamples
             return x, w, expmu, explambda 
         
-        def _computeWeight(tuple_x_weights_exp_mu_lambda):
-            x, w, expmu, explambda = tuple_x_weights_exp_mu_lambda
+        def _computeWeight(samples_weights_exp_mu_lambda):
+            x, w, expmu, explambda = samples_weights_exp_mu_lambda
             w = constantMRFParameters.value.norm / (expmu + explambda) / constantMRFParameters.value.nbSamples
             return x, w, expmu, explambda
         
         if self.sampleFromPY0:
-            return rdd_xwmulambs.map(_computeWeightFromPY0)
+            return rdd_samples_weights_with_expdotproducts.map(_computeWeightFromPY0)
         else:
-            return rdd_xwmulambs.map(_computeWeight)
+            return rdd_samples_weights_with_expdotproducts.map(_computeWeight)
 
-    def compute_enoclick_eclick_withweight(self, xweightsmulambdas):
+    def compute_enoclick_eclick_zi(self, rdd_samples_weights_with_expdotproducts):
+        """
+        Input: RDD containing tuple x,w,expmu,explambda
+            x: matrix (K,F) of K samples with F features
+            w: vector of K weights
+            expmu: exp of dotproducts for display parameters
+            explambda: expo of dotproducts for clicks parameters
+
+        Output: RDD containing tuple x,w,enoclick,eclick,z_i
+            x: unchanged 
+            w: udpated weights from prediction
+            enoclick: sample expectation of display | no click
+            eclick: sample expectation of display | click
+            z_i: Term used to compute P(Y)
+        """
         # x, expmu, explambda
         constantMRFParameters = self.constantMRFParameters
-        def _computePDisplays(tuple_x_weight_mu_lambda):
-            x, weights, expmu, explambda = tuple_x_weight_mu_lambda
+        def _computePDisplays(samples_weight_mu_lambda):
+            x, weights, expmu, explambda = samples_weight_mu_lambda
             enoclick = expmu * weights
             eclick = explambda * weights
             z_i = (1 + explambda /expmu).sum()
@@ -298,7 +338,7 @@ class AggMRFModel(BaseAggModel):
                 enoclick *= (1 + np.exp(constantMRFParameters.value.lambdaIntercept))
             return x, weights, enoclick, eclick, z_i
 
-        return xweightsmulambdas.map(_computePDisplays)
+        return rdd_samples_weights_with_expdotproducts.map(_computePDisplays)
 
     def getPredictionsVector(self, samples):
         if self.RaoBlackwellization:
@@ -307,12 +347,23 @@ class AggMRFModel(BaseAggModel):
         return samples.GetPrediction(self)
 
     def getPredictionsVectorRdd(self, x_w_enoclick_eclick):
+        """
+        Input: RDD containing tuple x,w,enoclick,eclick,z_i
+            x: matrix (K,F) of K samples with F features
+            w: vector of K weights
+            expmu: exp of dotproducts for display parameters
+            explambda: expo of dotproducts for clicks parameters
+
+        Output: Tuple containing p,1/z_0
+            p: np.array, pdisplay
+            1/z_0: float used to compute P(Y)
+        """
         
         constantMRFParameters = self.constantMRFParameters
 
-        def computePredictions(tuple_x_w_enoclick_eclick_zi):
+        def computePredictions(samples_w_enoclick_eclick_zi):
             p = np.zeros(constantMRFParameters.value.nbParameters)
-            x, w, enoclick, eclick, z_i = tuple_x_w_enoclick_eclick_zi
+            x, w, enoclick, eclick, z_i = samples_w_enoclick_eclick_zi
             t_x = x.transpose()
             for w in constantMRFParameters.value.displayWeights.values():
                 p[w.indices] = w.feature.Project_(t_x, enoclick + eclick)  # Correct for grads

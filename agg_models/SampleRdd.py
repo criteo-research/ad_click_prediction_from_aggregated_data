@@ -37,21 +37,27 @@ class SampleRdd:
         self.data = model.updateSamplesWithGibbsRdd(self.data)
         self.data.cache()
         self.data.localCheckpoint()
-        
+
     def UpdateSampleWeights(self, model):
-        rdd_xwmulambs = model.compute_rdd_expdotproducts(self.data)
-        rdd_xwmulambs.cache()
-        rdd_weighted = model.compute_weights(rdd_xwmulambs)
-        rdd_weighted.cache()
-        rdd_xwmulambs.unpersist()
-        self.data = model.compute_enoclick_eclick_withweight(rdd_weighted)
+        rdd_sample_weights_with_expdotproducts = model.compute_rdd_expdotproducts(self.data)
+        # rdd_sample_weights_with_expdotproducts.cache()
+        rdd_sample_updated_weights_with_expdotproducts = model.compute_weights(rdd_sample_weights_with_expdotproducts)
+        # rdd_sample_updated_weights_with_expdotproducts.cache()
+        # rdd_sample_weights_with_expdotproducts.unpersist()
+        self.data = model.compute_enoclick_eclick_zi(rdd_sample_updated_weights_with_expdotproducts)
         self.data.localCheckpoint()
+        
+    def compute_prediction(self, model):
+        pdisplays, z_on_z0 = model.getPredictionsVectorRdd(self.data)
+        # Compute z0_on_z : 1 / np.mean(z_i) = np.sum(z_zi) / nbSamples
+        predict = pdisplays*self.Size/z_on_z0
+        self.prediction = predict
 
     def PredictInternal(self, model):
-        self.UpdateSampleWeights(model)
-        pdisplays, z0_on_z = model.getPredictionsVectorRdd(self.data)
-        predict = pdisplays*self.Size/z0_on_z
-        self.prediction = predict
-        
-    def GetPrediction(self, model):
+        rdd_sample_updated_weights_with_expdotproducts = model.compute_rdd_expdotproducts(self.data)
+        self.data = model.compute_enoclick_eclick_zi(rdd_sample_updated_weights_with_expdotproducts)
+        self.data.localCheckpoint()
+        self.compute_prediction(model)
+
+    def GetPrediction(self, model):        
         return self.prediction
