@@ -93,7 +93,7 @@ class LogisticModelWithCF:
         self.lambdaL2 = lambdaL2
 
     def fit(self, df):
-        dfWithCfs = self.featuresSet.transformDf(df)
+        dfWithCfs = self.featuresSet.transformDf(df, True)
         self.model.fit(dfWithCfs)
 
     def predict_proba(self, df):
@@ -101,7 +101,7 @@ class LogisticModelWithCF:
         return self.model.predict_proba(dfWithCfs)
 
     def predictDF(self, df):
-        dfWithCfs = self.featuresSet.transformDf(df)
+        dfWithCfs = self.featuresSet.transformDf(df, True)
         return self.model.predictDF(dfWithCfs)
 
     def computeLossAndRegul(self, train):
