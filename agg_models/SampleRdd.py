@@ -51,8 +51,6 @@ class SampleRdd:
         self.UpdateSampleWeights(model)
         pdisplays, z0_on_z = model.getPredictionsVectorRdd(self.data)
         predict = pdisplays*self.Size/z0_on_z
-        if self.prediction is not None and not ((predict!=self.prediction).any()):
-            raise Exception('Doing twice the same prediction')
         self.prediction = predict
         
     def GetPrediction(self, model):

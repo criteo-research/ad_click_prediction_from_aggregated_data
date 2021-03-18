@@ -105,8 +105,6 @@ class SampleSet:
             predict[w.indices] = w.feature.Project_(self.data, self.pdisplays)  # Correct for grads
         for w in model.clickWeights.values():
             predict[w.indices] = w.feature.Project_(self.data, self.Eclick)
-        if self.prediction is not None and not ((predict!=self.prediction).any()):
-            raise Exception('Doing twice the same prediction')
         self.prediction = predict
         
     def GetPrediction(self, model):
