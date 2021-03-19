@@ -1,0 +1,29 @@
+apply plugin: 'com.criteo.python-module'
+
+python {
+    packageName = 'agg_models'
+    publishWheel = true
+    pexVersion = 'pex==2.1.1'
+}
+
+pex {
+    main {
+        publish = true
+    }
+}
+
+venv {
+    black {
+        requires 'black'
+
+        commandTask('pythonBlack') {
+            execution {
+                command '-m black --line-length 120 --check --diff .'
+            }
+        }
+    }
+}
+
+tasks.named('check')  {
+    dependsOn 'pythonBlack'
+}

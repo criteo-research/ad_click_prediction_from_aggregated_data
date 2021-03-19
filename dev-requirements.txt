@@ -4,3 +4,5 @@ pylama
 pylint
 mypy
 autopep8
+nbconvert
+nbconflux
