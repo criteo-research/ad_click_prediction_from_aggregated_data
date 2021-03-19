@@ -15,7 +15,7 @@ _REQUIREMENTS_TXT = _read_reqs("requirements.txt")
 _INSTALL_REQUIRES = [req for req in _REQUIREMENTS_TXT if "://" not in req]
 
 setuptools.setup(
-    name="agg_models",
+    name="agg-models",
     version="0.0.1",
     install_requires=_INSTALL_REQUIRES,
     tests_require=_read_reqs("tests-requirements.txt"),
