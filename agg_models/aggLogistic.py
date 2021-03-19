@@ -21,7 +21,7 @@ class AggLogistic(BaseAggModel):
         super().__init__(aggdata, features)
         self.regulL2 = regulL2
         self.clicksCfs = featuremappings.parseCFNames(self.features, clicksCfs)
-        self.setProjections() # building all weights and projections now
+        self.setProjections()  # building all weights and projections now
         self.setWeights()
         self.initParameters()
         self.nbCoefs = sum([w.feature.Size for w in self.clickWeights.values()])
@@ -39,7 +39,7 @@ class AggLogistic(BaseAggModel):
     def setDisplays(self, train):
         self.samples = self.transformDf(
             train[self.aggdata.features]
-        ).values.transpose() # keeping all features from aggdata to avoid breaking features indexing
+        ).values.transpose()  # keeping all features from aggdata to avoid breaking features indexing
 
     def initParameters(self):
         nbclicks = self.aggdata.Nbclicks
@@ -51,9 +51,7 @@ class AggLogistic(BaseAggModel):
         self.update()
 
     def predictDFinternal(self, df):
-        df["lambda"] = (
-            self.dotproductsOnDF(self.clickWeights, df) + self.lambdaIntercept
-        )
+        df["lambda"] = self.dotproductsOnDF(self.clickWeights, df) + self.lambdaIntercept
         df["pclick"] = 1.0 / (1.0 + np.exp(-df["lambda"]))
         return df
 
@@ -71,13 +69,13 @@ class AggLogistic(BaseAggModel):
             x[w.indices] = w.feature.Project_(self.samples, self.pclick)
         return x
 
-   # Computing approx LLH, (not true LLH)
+    # Computing approx LLH, (not true LLH)
     def computeLoss(self, epsilon=1e-12):
         llh = self.computeLossNoRegul(epsilon)
         regul = (self.parameters * self.parameters).sum() * self.regulL2
         return (llh + regul) / self.nbCoefs
 
-   #  "approx" loss.
+    #  "approx" loss.
     def computeLossNoRegul(self, epsilon=1e-12):
         preds = self.getPredictionsVector()
         llh = -(self.Data * np.log(preds + epsilon) - preds).sum()
@@ -85,20 +83,18 @@ class AggLogistic(BaseAggModel):
         return (llh) / self.nbCoefs
 
     # grad of "exact" loss
-    def computeGradient(self): # grad of loss
+    def computeGradient(self):  # grad of loss
         gradient = -self.Data + self.getPredictionsVector()
         gradient += 2 * self.parameters * self.regulL2
         self.normgrad = sum(gradient * gradient)
         return gradient
 
-    def computeInvHessianDiagAtOptimum(self): # grad of loss
+    def computeInvHessianDiagAtOptimum(self):  # grad of loss
         return 1 / (self.regulL2 * 2 + self.Data)
 
-    def computeInvHessianDiag(self, alpha=0.9): # grad of loss
+    def computeInvHessianDiag(self, alpha=0.9):  # grad of loss
         preds = self.getPredictionsVector()
-        preds = preds * alpha + self.Data * (
-            1 - alpha
-        )  # averaging with value at optimum
+        preds = preds * alpha + self.Data * (1 - alpha)  # averaging with value at optimum
         return 1 / (self.regulL2 * 2 + preds)
 
     def fit(self, train, nbIter=50, verbose=False):

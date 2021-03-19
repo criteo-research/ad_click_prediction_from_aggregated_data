@@ -34,53 +34,35 @@ def projectNUMBA(x, y, nbmods):
 class FeatureMapping:
     """class representing one feature and its set of modalities."""
 
-    def __init__(
-        self, name: str, df: pd.DataFrame, fid: int = 0, maxNbModalities: int = None
-    ):
+    def __init__(self, name: str, df: pd.DataFrame, fid: int = 0, maxNbModalities: int = None):
         """var: name of the feature
         df:  pd.DataFrame containing this feature
         fid:  index of the feature in np.arrays of shape ( nbfeatures,nbsamples )"""
         self.Name = name
-        self._modalities = np.array(
-            sorted(set(df[name].values))
-        )  # list of modalities observed in df
-        self._dicoModalityToId = {
-            m: i for i, m in enumerate(self._modalities)
-        }  # assigning an id to each modality
-        self._default = len(
-            self._modalities
-        )  # assigning an id for eventual modalities for observed in df
+        self._modalities = np.array(sorted(set(df[name].values)))  # list of modalities observed in df
+        self._dicoModalityToId = {m: i for i, m in enumerate(self._modalities)}  # assigning an id to each modality
+        self._default = len(self._modalities)  # assigning an id for eventual modalities for observed in df
         self.Size = len(self._modalities) + 1  # +1 To get a modality for "unobserved"
         self._fid = fid
 
         if maxNbModalities is None or len(self._modalities) < maxNbModalities:
-            self._dicoModalityToId = {
-                m: i for i, m in enumerate(self._modalities)
-            }  # assigning an id to each modality
-            self._default = len(
-                self._modalities
-            )  # assigning an id for eventual modalities for observed in train
-            self.Size = (
-                len(self._modalities) + 1
-            )  # +1 To get a modality for "unobserved"
-            self.Modulo = self.Size + 1 # to implement some hashing later
+            self._dicoModalityToId = {m: i for i, m in enumerate(self._modalities)}  # assigning an id to each modality
+            self._default = len(self._modalities)  # assigning an id for eventual modalities for observed in train
+            self.Size = len(self._modalities) + 1  # +1 To get a modality for "unobserved"
+            self.Modulo = self.Size + 1  # to implement some hashing later
             self.hashed = False
         else:
-            self.Modulo = maxNbModalities # to implement some hashing later
+            self.Modulo = maxNbModalities  # to implement some hashing later
             self._dicoModalityToId = {
                 m: i % self.Modulo for i, m in enumerate(self._modalities)
             }  # assigning an id to each modality
-            self._default = (
-                self.Modulo
-            )  # assigning an id for eventual modalities for observed in train
+            self._default = self.Modulo  # assigning an id for eventual modalities for observed in train
             self.Size = self._default + 1  # +1 To get a modality for "unobserved"
             self.hashed = True
 
     # replace initial modalities of features by modality index
     def Map(self, df):
-        df[self.Name] = df[self.Name].apply(
-            lambda x: self._dicoModalityToId.get(x, self._default)
-        )
+        df[self.Name] = df[self.Name].apply(lambda x: self._dicoModalityToId.get(x, self._default))
         return df
 
     # inverse transorm of Map
@@ -143,7 +125,7 @@ class CrossFeaturesMapping:
             self.Size = maxNbModalities
             self.Modulo = maxNbModalities
             self.hashed = True
-            self.coefV2 = 7907 # prime. todo: heuristic to find resonable number here.
+            self.coefV2 = 7907  # prime. todo: heuristic to find resonable number here.
 
     def Values_(self, x):
         return (x[self._fid1] + self.coefV2 * x[self._fid2]) % self.Modulo
@@ -237,9 +219,7 @@ class FeaturesSet:
         for cf in self.crossfeatures:
             if len(cf) != 2:
                 raise Exception("cf of len !=2  not supported yet")
-            mapping = CrossFeaturesMapping(
-                mappings[cf[0]], mappings[cf[1]], self.maxNbModalities
-            )
+            mapping = CrossFeaturesMapping(mappings[cf[0]], mappings[cf[1]], self.maxNbModalities)
             mappings[mapping.Name] = mapping
         self.mappings = mappings
 

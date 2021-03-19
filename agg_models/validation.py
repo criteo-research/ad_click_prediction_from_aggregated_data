@@ -72,12 +72,7 @@ class MetricsComputer:
         label = self.label
         se = 0.0
         for var in features:
-            agg = (
-                dfWithPrediction[[var, label, "prediction"]]
-                .groupby(var)
-                .sum()
-                .reset_index()
-            )
+            agg = dfWithPrediction[[var, label, "prediction"]].groupby(var).sum().reset_index()
             agg["se"] = np.abs(agg[label] - agg.prediction)
             se += agg["se"].sum()
         return se / dfWithPrediction[label].sum()
@@ -86,12 +81,7 @@ class MetricsComputer:
         label = self.label
         se = 0.0
         for var in features:
-            agg = (
-                dfWithPrediction[[var, label, "prediction"]]
-                .groupby(var)
-                .sum()
-                .reset_index()
-            )
+            agg = dfWithPrediction[[var, label, "prediction"]].groupby(var).sum().reset_index()
             agg["se"] = (agg[label] - agg.prediction) * (agg[label] - agg.prediction)
             se += agg["se"].sum()
         return se / dfWithPrediction[label].sum()

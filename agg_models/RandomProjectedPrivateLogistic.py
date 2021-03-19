@@ -36,9 +36,7 @@ class RPPrivateLogistic:
         self.lambdaL2 = lambdaL2
         self.epsilon = epsilon
         self.hasher = Hasher(self.features, hashspace)
-        self.model = diffprivlib.models.LogisticRegression(
-            epsilon=epsilon, C=0.5 / lambdaL2, data_norm=1.0
-        )
+        self.model = diffprivlib.models.LogisticRegression(epsilon=epsilon, C=0.5 / lambdaL2, data_norm=1.0)
         self.param = np.zeros(projectionSize + 1)
         self.delta = 0
         self.projectionSize = projectionSize
@@ -77,25 +75,17 @@ class RPPrivateLogistic:
         self._function_sensitivity = 0.25
         self._data_sensitivity = self.norm
         # self._data_sensitivity = 1.0
-        self._alpha = self.lambdaL2 * 2 # *2 ?  / 2 ?
+        self._alpha = self.lambdaL2 * 2  # *2 ?  / 2 ?
         epsilon_p = self.epsilon - 2 * np.log(
-            1
-            + self._function_sensitivity * self._data_sensitivity / (0.5 * self._alpha)
+            1 + self._function_sensitivity * self._data_sensitivity / (0.5 * self._alpha)
         )
         delta = 0
         if epsilon_p <= 0:
             delta = (
-                self._function_sensitivity
-                * self._data_sensitivity
-                / (np.exp(self.epsilon / 4) - 1)
-                - 0.5 * self._alpha
+                self._function_sensitivity * self._data_sensitivity / (np.exp(self.epsilon / 4) - 1) - 0.5 * self._alpha
             )
             epsilon_p = self.epsilon / 2
-        scale = (
-            (epsilon_p / 2 / self._data_sensitivity)
-            if self._data_sensitivity > 0
-            else float("inf")
-        )
+        scale = (epsilon_p / 2 / self._data_sensitivity) if self._data_sensitivity > 0 else float("inf")
         self.epsilon_p = epsilon_p
         _vector_dim = len(self.param) - 1
         normed_noisy_vector = np.random.normal(0, 1, _vector_dim)
@@ -105,9 +95,7 @@ class RPPrivateLogistic:
         self.noisy_norm = noisy_norm
         self.normed_noisy_vector = normed_noisy_vector
         self.delta = delta
-        print(
-            f"scale:{scale} , noisy_norm:{noisy_norm} ,sigma:{noisy_norm/np.sqrt(_vector_dim)} "
-        )
+        print(f"scale:{scale} , noisy_norm:{noisy_norm} ,sigma:{noisy_norm/np.sqrt(_vector_dim)} ")
 
     def computeGradient(self, x, y):
         g = (2 * self.lambdaL2 + self.delta) * self.param

@@ -21,17 +21,17 @@ class SampleSet:
         sampleFromPY0=False,
         maxNbRowsperGibbsUpdate=50,
         data=None,
-        weights=None
+        weights=None,
     ):
         self.projections = projections
         self.decollapseGibbs = decollapseGibbs
         self.sampleFromPY0 = sampleFromPY0
         self.features = [p.feature for p in projections]
-        self.featurenames = [f.Name for f in self.features]        
+        self.featurenames = [f.Name for f in self.features]
         self.use_spark_rdd = False
         self.allcrossmods = False
-        if data is not None: 
-            self.data = data        
+        if data is not None:
+            self.data = data
         elif nbSamples is None:
             df = self.buildCrossmodsSample()
             self.data = df[self.featurenames].values.transpose()
@@ -40,7 +40,6 @@ class SampleSet:
 
         self.Size = len(self.data[0])
 
-        
         if weights is not None:
             self.weights = weights
         else:
@@ -83,7 +82,7 @@ class SampleSet:
             self.Enoclick = (1 - clicked) * (self.expmu + self.explambda) * self.weights
             self.Eclick = clicked * (self.expmu + self.explambda) * self.weights
 
-        else: # normal case (Gibbs samples)
+        else:  # normal case (Gibbs samples)
             self.Enoclick = self.expmu * self.weights
             self.Eclick = self.explambda * self.weights
             if self.sampleFromPY0:  # correct importance weigthing formula
@@ -93,10 +92,10 @@ class SampleSet:
                 self.Enoclick *= z0_on_z * (1 + np.exp(lambdaIntercept))
 
         self.pdisplays = self.Eclick + self.Enoclick
-        
+
     def PredictInternal(self, model):
         model.computedotprods(self)
-        self.applyreweighting(model.muIntercept, model.lambdaIntercept)        
+        self.applyreweighting(model.muIntercept, model.lambdaIntercept)
         self.compute_prediction(model)
 
     def compute_prediction(self, model):
@@ -106,15 +105,13 @@ class SampleSet:
         for w in model.clickWeights.values():
             predict[w.indices] = w.feature.Project_(self.data, self.Eclick)
         self.prediction = predict
-        
+
     def GetPrediction(self, model):
         return self.prediction
-        
+
     def UpdateSampleWithGibbs(self, model):
-        self.data = model.RunParallelGibbsSampler(
-                self, maxNbRows=model.maxNbRowsperGibbsUpdate
-            )
-        
+        self.data = model.RunParallelGibbsSampler(self, maxNbRows=model.maxNbRowsperGibbsUpdate)
+
     def UpdateSampleWeights(self, model):
         model.computedotprods(self)
         self.computeProbaSamples(model.muIntercept, model.lambdaIntercept)
@@ -147,9 +144,7 @@ class SampleSet:
             n = f.Size - 1  # -1 because last modality is "missing"
             modalities = np.arange(0, n)
             modalitiesdf = pd.DataFrame({f.Name: modalities})
-            crossmodalitiesdf = pd.merge(
-                crossmodalitiesdf, modalitiesdf.assign(c=0), on="c"
-            )
+            crossmodalitiesdf = pd.merge(crossmodalitiesdf, modalitiesdf.assign(c=0), on="c")
         return crossmodalitiesdf
 
     def sampleIndepedent(self, nbSamples):

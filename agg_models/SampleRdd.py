@@ -20,7 +20,7 @@ class SampleRdd:
         decollapseGibbs=False,
         sampleFromPY0=False,
         maxNbRowsperGibbsUpdate=50,
-        data=None
+        data=None,
     ):
         self.projections = projections
         self.decollapseGibbs = decollapseGibbs
@@ -46,11 +46,11 @@ class SampleRdd:
         # rdd_sample_weights_with_expdotproducts.unpersist()
         self.data = model.compute_enoclick_eclick_zi(rdd_sample_updated_weights_with_expdotproducts)
         self.data.localCheckpoint()
-        
+
     def compute_prediction(self, model):
         pdisplays, z_on_z0 = model.getPredictionsVectorRdd(self.data)
         # Compute z0_on_z : 1 / np.mean(z_i) = np.sum(z_zi) / nbSamples
-        predict = pdisplays*self.Size/z_on_z0
+        predict = pdisplays * self.Size / z_on_z0
         self.prediction = predict
 
     def PredictInternal(self, model):
@@ -59,5 +59,5 @@ class SampleRdd:
         self.data.localCheckpoint()
         self.compute_prediction(model)
 
-    def GetPrediction(self, model):        
+    def GetPrediction(self, model):
         return self.prediction

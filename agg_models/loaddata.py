@@ -18,9 +18,7 @@ def download_dataset():
         os.mkdir(datapath)
     zipfilename = "criteo-research-attribution-dataset.zip"
     print("downloading dataset")
-    urllib.request.urlretrieve(
-        "http://go.criteo.net/" + zipfilename, datapath + zipfilename
-    )
+    urllib.request.urlretrieve("http://go.criteo.net/" + zipfilename, datapath + zipfilename)
     print("unzipping")
     with zipfile.ZipFile(datapath + zipfilename, "r") as zip_ref:
         zip_ref.extractall(datapath + "criteo_attribution_dataset")
@@ -36,8 +34,7 @@ class DatasetSpec:
 
 
 criteo_attribution_dataset = DatasetSpec(
-    dataset_path=datapath
-    + "/criteo_attribution_dataset/criteo_attribution_dataset.tsv.gz",
+    dataset_path=datapath + "/criteo_attribution_dataset/criteo_attribution_dataset.tsv.gz",
     labels=["click"],  # + ["conversion", "attribution"],
     features=[
         "campaign",
@@ -63,8 +60,7 @@ criteo_attribution_dataset_small = dataclasses.replace(
 
 
 criteo_terabyte_dataset = DatasetSpec(
-    dataset_path=datapath
-    + "/criteo_terabyte_dataset_small/criteo_tb_sample_1_1000_seed_42_small.gz.parquet",
+    dataset_path=datapath + "/criteo_terabyte_dataset_small/criteo_tb_sample_1_1000_seed_42_small.gz.parquet",
     labels=["label"],
     features=[
         "integer_feature_1",
@@ -148,9 +144,7 @@ def run(
         df = pd.read_parquet(dataset_path, columns=usecols)
     df = df[skip]
     for c in df.columns:
-        default = (
-            df[c].min() - 1 if df[c].dtype in ["int32", "int64", "float64"] else ""
-        )
+        default = df[c].min() - 1 if df[c].dtype in ["int32", "int64", "float64"] else ""
         df[c] = df[c].fillna(default)
     df["c"] = 1
 
@@ -163,9 +157,7 @@ def run(
         return int(np.log(x) / np.log(2))
 
     if "time_since_last_click" in df.columns:
-        df.time_since_last_click = df.time_since_last_click.apply(
-            lambda x: bucketize(x, 2.0, 3600 * 6)
-        )
+        df.time_since_last_click = df.time_since_last_click.apply(lambda x: bucketize(x, 2.0, 3600 * 6))
     # Set constant column for row count
     df["c"] = 1
     # Split Train / Validation
@@ -213,9 +205,7 @@ def getDataset(name, forceSamplingRate=None, splitOnDate=None):
         dataset = criteo_attribution_dataset
 
     print(f"Sampling ratio :{samplingRate}")
-    train, valid, allvars = train, valid, allvars = run(
-        dataset, samplingRate, splitOnDate=splitOnDate, verbose=False
-    )
+    train, valid, allvars = train, valid, allvars = run(dataset, samplingRate, splitOnDate=splitOnDate, verbose=False)
     if name == "full":
         # on dataset-full, some features have a marge number of modalities with very few events.
         # there is not much to learn from those modalities,

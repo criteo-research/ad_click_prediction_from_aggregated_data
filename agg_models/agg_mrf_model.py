@@ -27,17 +27,17 @@ from numba import jit
 
 class ConstantMRFParameters:
     def __init__(
-            self,
-            nbSamples,
-            nbParameters,
-            sampleFromPY0,
-            explosedDisplayWeights,
-            displayWeights,
-            clickWeights,
-            modalitiesByVarId,
-            muIntercept,
-            lambdaIntercept
-        ):
+        self,
+        nbSamples,
+        nbParameters,
+        sampleFromPY0,
+        explosedDisplayWeights,
+        displayWeights,
+        clickWeights,
+        modalitiesByVarId,
+        muIntercept,
+        lambdaIntercept,
+    ):
         self.nbSamples = nbSamples
         self.nbParameters = nbParameters
         self.sampleFromPY0 = sampleFromPY0
@@ -52,14 +52,10 @@ class ConstantMRFParameters:
         else:
             self.norm = np.exp(muIntercept) * (1 + np.exp(lambdaIntercept))
         self.enoclick = (1 + np.exp(self.lambdaIntercept)) * np.exp(self.muIntercept) / self.nbSamples
-            
 
 
 class VariableMRFParameters:
-    def __init__(
-            self,
-            parameters
-        ):
+    def __init__(self, parameters):
         self.parameters = parameters
 
 
@@ -79,13 +75,13 @@ class AggMRFModel(BaseAggModel):
         noiseDistribution=None,  # Parameters of the noise on the aggregated data (if any)   ,
         sampleFromPY0=False,
         maxNbRowsperGibbsUpdate=50,
-        sparkSession=None
+        sparkSession=None,
     ):
         super().__init__(aggdata, features)
         self.priorDisplays = priorDisplays
         self.exactComputation = exactComputation
         self.nbSamples = int(nbSamples) if not exactComputation else None
-        
+
         self.regulL2 = regulL2
 
         self.displaysCfs = featuremappings.parseCFNames(self.features, displaysCfs)
@@ -98,7 +94,7 @@ class AggMRFModel(BaseAggModel):
         self.noiseDistribution = noiseDistribution
         self.sampleFromPY0 = sampleFromPY0
         # Compute Monte Carlo by sampling Y  (no good reason to do that ? )
-        self.decollapseGibbs = False        
+        self.decollapseGibbs = False
         self.nbGibbsSteps = 1
         self.RaoBlackwellization = False
         self.regulL2Click = regulL2Click
@@ -153,29 +149,22 @@ class AggMRFModel(BaseAggModel):
             proj = self.displayProjections[var]
             self.parameters[weights.indices] = np.log(np.maximum(proj.Data, self.priorDisplays)) - logNbDisplay
             # init to log( P(v | C=0 ) instead ???
-        (
-            exportedDisplayWeights,
-            exportedClickWeights,
-            modalitiesByVarId,
-            parameters
-        ) = self.exportWeightsAll()
+        (exportedDisplayWeights, exportedClickWeights, modalitiesByVarId, parameters) = self.exportWeightsAll()
         if self.sparkSession:
             self.constantMRFParameters = self.sparkSession.sparkContext.broadcast(
-                    ConstantMRFParameters(
-                        self.nbSamples,
-                        self.parameters.size,
-                        self.sampleFromPY0,
-                        exportedDisplayWeights,
-                        self.displayWeights,
-                        self.clickWeights,
-                        modalitiesByVarId,
-                        self.muIntercept,
-                        self.lambdaIntercept
-                    )
+                ConstantMRFParameters(
+                    self.nbSamples,
+                    self.parameters.size,
+                    self.sampleFromPY0,
+                    exportedDisplayWeights,
+                    self.displayWeights,
+                    self.clickWeights,
+                    modalitiesByVarId,
+                    self.muIntercept,
+                    self.lambdaIntercept,
                 )
-            self.variableMRFParameters = self.sparkSession.sparkContext.broadcast(
-                    VariableMRFParameters(parameters)
-                )
+            )
+            self.variableMRFParameters = self.sparkSession.sparkContext.broadcast(VariableMRFParameters(parameters))
 
     def prepareFit(self):
         self.setProjections()  # building all weights and projections now
@@ -207,7 +196,7 @@ class AggMRFModel(BaseAggModel):
     def setparameters(self, x):
         if (self.parameters != x).any():
             self.parameters = x
-            
+
             if self.sparkSession and self.variableMRFParameters is not None:
                 self.variableMRFParameters.unpersist()
                 self.variableMRFParameters = self.sparkSession.sparkContext.broadcast(
@@ -256,7 +245,7 @@ class AggMRFModel(BaseAggModel):
             x: matrix (K,F) of K samples with F features
             w: vector of K weights
             (...): potential leftover from previous iterations, ignored
-            
+
         Output:  RDD containing tuple x,w,expmu,explambda
             x, w: unchanged
             expmu: exp of dotproducts for display parameters
@@ -279,7 +268,7 @@ class AggMRFModel(BaseAggModel):
             return x, w, expmu, explambda
 
         return rdd_samples_weights.map(expdotproducts)
-    
+
     def compute_weights(self, rdd_samples_weights_with_expdotproducts):
         """
         Input: RDD containing tuple x,w,expmu,explambda
@@ -289,7 +278,7 @@ class AggMRFModel(BaseAggModel):
             explambda: expo of dotproducts for clicks parameters
 
         Output: RDD containing tuple x,w,expmu,explambda
-            x: unchanged 
+            x: unchanged
             w: udpated weights from prediction
             expmu: unchanged
             explambda: unchanged
@@ -299,13 +288,13 @@ class AggMRFModel(BaseAggModel):
         def _computeWeightFromPY0(samples_weights_exp_mu_lambda):
             x, w, expmu, explambda = samples_weights_exp_mu_lambda
             w = constantMRFParameters.value.norm / expmu / constantMRFParameters.value.nbSamples
-            return x, w, expmu, explambda 
-        
+            return x, w, expmu, explambda
+
         def _computeWeight(samples_weights_exp_mu_lambda):
             x, w, expmu, explambda = samples_weights_exp_mu_lambda
             w = constantMRFParameters.value.norm / (expmu + explambda) / constantMRFParameters.value.nbSamples
             return x, w, expmu, explambda
-        
+
         if self.sampleFromPY0:
             return rdd_samples_weights_with_expdotproducts.map(_computeWeightFromPY0)
         else:
@@ -320,7 +309,7 @@ class AggMRFModel(BaseAggModel):
             explambda: expo of dotproducts for clicks parameters
 
         Output: RDD containing tuple x,w,enoclick,eclick,z_i
-            x: unchanged 
+            x: unchanged
             w: udpated weights from prediction
             enoclick: sample expectation of display | no click
             eclick: sample expectation of display | click
@@ -328,14 +317,15 @@ class AggMRFModel(BaseAggModel):
         """
         # x, expmu, explambda
         constantMRFParameters = self.constantMRFParameters
+
         def _computePDisplays(samples_weight_mu_lambda):
             x, weights, expmu, explambda = samples_weight_mu_lambda
             enoclick = expmu * weights
             eclick = explambda * weights
-            z_i = (1 + explambda /expmu).sum()
+            z_i = (1 + explambda / expmu).sum()
             if constantMRFParameters.value.sampleFromPY0:  # correct importance weigthing formula
-                eclick *= (1 + np.exp(constantMRFParameters.value.lambdaIntercept))
-                enoclick *= (1 + np.exp(constantMRFParameters.value.lambdaIntercept))
+                eclick *= 1 + np.exp(constantMRFParameters.value.lambdaIntercept)
+                enoclick *= 1 + np.exp(constantMRFParameters.value.lambdaIntercept)
             return x, weights, enoclick, eclick, z_i
 
         return rdd_samples_weights_with_expdotproducts.map(_computePDisplays)
@@ -358,7 +348,7 @@ class AggMRFModel(BaseAggModel):
             p: np.array, pdisplay
             1/z_0: float used to compute P(Y)
         """
-        
+
         constantMRFParameters = self.constantMRFParameters
 
         def computePredictions(samples_w_enoclick_eclick_zi):
@@ -371,7 +361,9 @@ class AggMRFModel(BaseAggModel):
                 p[w.indices] = w.feature.Project_(t_x, eclick)
             return p, z_i
 
-        return x_w_enoclick_eclick.map(computePredictions).reduce(lambda p_z,p_z1: (p_z[0]+p_z1[0], p_z[1]+p_z1[1]))
+        return x_w_enoclick_eclick.map(computePredictions).reduce(
+            lambda p_z, p_z1: (p_z[0] + p_z1[0], p_z[1] + p_z1[1])
+        )
 
     def getPredictionsVector_(self, samples, index):
         x = self.parameters * 0
@@ -483,39 +475,39 @@ class AggMRFModel(BaseAggModel):
     def updateAllSamplesWithGibbs(self):
         self.updateSamplesWithGibbs(self.samples)
 
-    def buildSamplesRddFromSampleSet(self, samples):        
+    def buildSamplesRddFromSampleSet(self, samples):
         maxNbRows = self.maxNbRowsperGibbsUpdate
         rows = samples.data.transpose()
         weights = samples.weights.transpose()
         starts = np.arange(0, len(rows), maxNbRows)
-        slices = [(rows[start: start + maxNbRows], weights[start: start + maxNbRows]) for start in starts]
+        slices = [(rows[start : start + maxNbRows], weights[start : start + maxNbRows]) for start in starts]
         return SampleRdd(
-                [self.displayProjections[var] for var in self.features],
-                self.nbSamples,
-                self.decollapseGibbs,
-                self.sampleFromPY0,
-                self.maxNbRowsperGibbsUpdate,
-                self.sparkSession.sparkContext.parallelize(slices)
-            )
+            [self.displayProjections[var] for var in self.features],
+            self.nbSamples,
+            self.decollapseGibbs,
+            self.sampleFromPY0,
+            self.maxNbRowsperGibbsUpdate,
+            self.sparkSession.sparkContext.parallelize(slices),
+        )
 
     def buildSamplesSetFromSampleRdd(self, samples):
         data_weights = samples.data.collect()
         data = np.vstack([d[0] for d in data_weights]).transpose()
         weights = np.hstack([d[1] for d in data_weights]).transpose()
         return SampleSet(
-                [self.displayProjections[var] for var in self.features],
-                self.nbSamples,
-                self.decollapseGibbs,
-                self.sampleFromPY0,
-                self.maxNbRowsperGibbsUpdate,
-                data,
-                weights
-            )
+            [self.displayProjections[var] for var in self.features],
+            self.nbSamples,
+            self.decollapseGibbs,
+            self.sampleFromPY0,
+            self.maxNbRowsperGibbsUpdate,
+            data,
+            weights,
+        )
 
     def updateSamplesWithGibbsRdd(self, samplesRdd):
         constantMRFParameters = self.constantMRFParameters
         variableMRFParameters = self.variableMRFParameters
-        
+
         def myfun_sampling_from_p_y0(sampleWithWeight):
             sample = fastGibbsSampleFromPY0(
                 constantMRFParameters.value.explosedDisplayWeights,
@@ -627,6 +619,7 @@ class AggMRFModel(BaseAggModel):
         starts = np.arange(0, len(rows), maxNbRows)
         slices = [(rows[start : start + maxNbRows], samples.y[start : start + maxNbRows]) for start in starts]
         nbGibbsSteps = self.nbGibbsSteps
+
         def myfun(s):
             s = fastGibbsSample(
                 exportedDisplayWeights,

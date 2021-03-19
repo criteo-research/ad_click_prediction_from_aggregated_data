@@ -1,7 +1,7 @@
 import numpy as np
 
 
-class LaplaceNoise: # Distrete Laplace
+class LaplaceNoise:  # Distrete Laplace
     def __init__(self, epsilon):
         self.epsilon = epsilon
         decay = np.exp(-epsilon)
@@ -11,18 +11,14 @@ class LaplaceNoise: # Distrete Laplace
     def Proba(self, x):
         return self.normalization * np.exp(-self.epsilon * np.abs(x))
 
-    def LogProba(
-        self, x
-    ):  # avoiding numerical issues with calling np.log(self.proba(x)) for large x
+    def LogProba(self, x):  # avoiding numerical issues with calling np.log(self.proba(x)) for large x
         return -self.epsilon * np.abs(x) + np.log(self.normalization)
 
     def Sample(self, n):
         decay = np.exp(-self.epsilon)
         p0 = (1 - decay) / (1 + decay)
         return (
-            np.random.geometric(1 - decay, n)
-            * (np.random.randint(0, 2, n) * 2 - 1)
-            * (np.random.uniform(0, 1, n) > p0)
+            np.random.geometric(1 - decay, n) * (np.random.randint(0, 2, n) * 2 - 1) * (np.random.uniform(0, 1, n) > p0)
         )
 
     def expectedNoiseApprox(self, observedCount, poisson):
@@ -53,9 +49,7 @@ def PoissonProba(n, c0):
     return np.exp(n * np.log(c0) - c0 - np.math.lgamma(n + 1))
 
 
-def expectedNoise_ByIntegration(
-    observedCount, poisson, noiseDistribution, maxnoise=1000
-):
+def expectedNoise_ByIntegration(observedCount, poisson, noiseDistribution, maxnoise=1000):
     # estimates E(N | N+P = observedCount ; N~noiseDistribution ; P~Poisson(poisson)  ) by numeric integration
     poisson_min = min(0, int(observedCount - maxnoise))
     poisson_max = int(observedCount) + maxnoise
@@ -63,24 +57,15 @@ def expectedNoise_ByIntegration(
 
     a = sum(
         [
-            (observedCount - k)
-            * noiseDistribution.Proba(observedCount - k)
-            * PoissonProba(k, poisson)
+            (observedCount - k) * noiseDistribution.Proba(observedCount - k) * PoissonProba(k, poisson)
             for k in poisson_range
         ]
     )
-    b = sum(
-        [
-            noiseDistribution.Proba(observedCount - k) * PoissonProba(k, poisson)
-            for k in poisson_range
-        ]
-    )
+    b = sum([noiseDistribution.Proba(observedCount - k) * PoissonProba(k, poisson) for k in poisson_range])
     return a / b
 
 
-def expectedGaussiaApprox(
-    observedCount, poissonExpect, sigma, nbiters=10, minvalue=0.01
-):
+def expectedGaussiaApprox(observedCount, poissonExpect, sigma, nbiters=10, minvalue=0.01):
     # approximates E(G | G+P = observedCount ; L~Gaussian(sigma) ; P~Poisson(poisson)  ) by numeric integration
     # by solving:    n+sigma²ln(n) = observed +sigma²ln(poissonExpect)
     # indeed:
@@ -122,14 +107,8 @@ def expectedLaplaceAffineApprox(observedCount, poisson, epsilon):
     valAtUpperCut = poisson + p1 * (upperCut - poisson)
 
     expectedPoisson = (
-        (observedCount > lowerCut)
-        * (observedCount < upperCut)
-        * (poisson + p1 * (observedCount - poisson))
+        (observedCount > lowerCut) * (observedCount < upperCut) * (poisson + p1 * (observedCount - poisson))
     )
-    expectedPoisson += (observedCount <= lowerCut) * (
-        valAtLowerCut + p2 * (observedCount - lowerCut)
-    )
-    expectedPoisson += (observedCount >= upperCut) * (
-        valAtUpperCut + p2 * (observedCount - upperCut)
-    )
+    expectedPoisson += (observedCount <= lowerCut) * (valAtLowerCut + p2 * (observedCount - lowerCut))
+    expectedPoisson += (observedCount >= upperCut) * (valAtUpperCut + p2 * (observedCount - upperCut))
     return observedCount - expectedPoisson

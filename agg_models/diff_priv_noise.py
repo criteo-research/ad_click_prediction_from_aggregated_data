@@ -8,9 +8,7 @@ class GaussianMechanism:
         self.delta = delta
         self.nbquerries = nbquerries
         self.l2sensitivity = np.sqrt(nbquerries)
-        self.sigma = GaussianMechanism.GaussianMechanism_2(
-            self.epsilon, self.delta, self.l2sensitivity
-        )
+        self.sigma = GaussianMechanism.GaussianMechanism_2(self.epsilon, self.delta, self.l2sensitivity)
 
     def getNoise(self):
         return noiseDistributions.GaussianNoise(self.sigma)

@@ -40,7 +40,7 @@ class LineSearchWithOnlyGrad:
         dg = d.dot(g)
 
         if not math.isfinite(dg):  # numerical error -> happens if we went way too far
-            dg = 1.0 # whatever >0
+            dg = 1.0  # whatever >0
             alpha *= 0.1
         # if dg < dg0:
         #    print(f"Linesearch error: not convex. dg0:{dg0:.1E} dg:{dg:.1E} r:{dg/dg0:.1E} a={alpha:.1E}")
@@ -59,7 +59,7 @@ class LineSearchWithOnlyGrad:
                 dg = d.dot(g)
                 if not math.isfinite(dg):  # numerical error
                     alpha *= 0.1
-                    dg = 1.0 # whatever >0
+                    dg = 1.0  # whatever >0
                 # self.lastNbTry +=1
         else:
             ratio = dg / dg0
@@ -95,9 +95,7 @@ class LineSearchWithOnlyGrad:
         if not math.isfinite(dg):  # numerical error -> happens if we went way too far
             dg = -10 * dg0
         if dg <= dg0:
-            print(
-                f"Linesearch error: not convex. dg0:{dg0:.1E} dg:{dg:.1E} r:{dg/dg0:.1E}"
-            )
+            print(f"Linesearch error: not convex. dg0:{dg0:.1E} dg:{dg:.1E} r:{dg/dg0:.1E}")
             return
         alphaOptim = dg0 / (dg0 - dg)
 
@@ -146,10 +144,7 @@ class LineSearchWithOnlyGrad:
         return x, g
 
     def getInfoStr(self):
-        return (
-            f"a:{self.alpha:.1E}({self.lastNbTry}),"
-            + f" n:{self.nbCalls}, g:{self.normgrad:.1E}"
-        )
+        return f"a:{self.alpha:.1E}({self.lastNbTry})," + f" n:{self.nbCalls}, g:{self.normgrad:.1E}"
 
 
 def cos(g, g2):
@@ -244,7 +239,7 @@ class LbfgsInvHessProduct:
             q = q - alpha[i] * y[i]
 
         r = q
-       # Multiplying by "diag" here
+        # Multiplying by "diag" here
         if diag is not None:
             r *= diag
         for i in range(n_corrs):

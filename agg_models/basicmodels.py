@@ -11,21 +11,15 @@ class Hasher:
         self.hashspace = hashspace
 
     def __str__(self):
-        return (
-            "features = " + str(self.features) + "; hashspace =" + str(self.hashspace)
-        )
+        return "features = " + str(self.features) + "; hashspace =" + str(self.hashspace)
 
     def features_to_list_of_strings(self, row):
         return [f"{feature}_{row[feature]}" for feature in row.index]
 
     def hash_features(self, df):
         raw_features = df[self.features]
-        features_as_list_of_strings = raw_features.apply(
-            self.features_to_list_of_strings, axis=1
-        )
-        hasher = FeatureHasher(
-            n_features=self.hashspace, input_type="string", alternate_sign=False
-        )
+        features_as_list_of_strings = raw_features.apply(self.features_to_list_of_strings, axis=1)
+        hasher = FeatureHasher(n_features=self.hashspace, input_type="string", alternate_sign=False)
         features = hasher.fit_transform(features_as_list_of_strings)
         return features
 
@@ -47,9 +41,7 @@ class LogisticModel:
                 max_iter=max_iter, C=0.5 / lambdaL2
             )  # multiplying by 0.5 to get results similar to my own reimplem ??
         else:
-            self.model = diffprivlib.models.LogisticRegression(
-                epsilon=epsilon, max_iter=max_iter, C=0.5 / lambdaL2
-            )
+            self.model = diffprivlib.models.LogisticRegression(epsilon=epsilon, max_iter=max_iter, C=0.5 / lambdaL2)
         self.label = label
         self.features = features
         self.lambdaL2 = lambdaL2
@@ -87,9 +79,7 @@ class LogisticModelWithCF:
     ):
         self.featuresSet = FeaturesSet(features, crossfeatures, train)
         self.features = [x for x in self.featuresSet.mappings]
-        self.model = LogisticModel(
-            label, self.features, lambdaL2, hashspace, max_iter, epsilon=epsilon
-        )
+        self.model = LogisticModel(label, self.features, lambdaL2, hashspace, max_iter, epsilon=epsilon)
         self.lambdaL2 = lambdaL2
 
     def fit(self, df):
@@ -125,9 +115,7 @@ class NaiveBayesModel:
         labels = df[self.label]
         self.models = {}
         for var in self.features:
-            self.models[var] = LogisticModel(
-                self.label, features=[var], lambdaL2=self.lambdaL2
-            )
+            self.models[var] = LogisticModel(self.label, features=[var], lambdaL2=self.lambdaL2)
             self.models[var].fit(df)
 
     def predict_proba(self, df):
