@@ -28,7 +28,6 @@ class SampleSet:
         self.sampleFromPY0 = sampleFromPY0
         self.features = [p.feature for p in projections]
         self.featurenames = [f.Name for f in self.features]
-        self.use_spark_rdd = False
         self.allcrossmods = False
         if data is not None:
             self.data = data
@@ -51,6 +50,7 @@ class SampleSet:
         self.prediction = None
 
     def setweights(self):
+        #  print("SetWeights")
         if self.allcrossmods:
             self.weights = np.ones(self.Size)
         else:
@@ -58,6 +58,7 @@ class SampleSet:
             self.weights = scaling / self.probaSamples
 
     def computeProbaSamples(self, muIntercept, lambdaIntercept):
+        #  print("computeProbaSamples")
         if self.sampleFromPY0:
             # n = np.exp( self.muIntercept ) * ( 1 + np.exp(self.lambdaIntercept) )
             n = np.exp(muIntercept)
@@ -66,7 +67,8 @@ class SampleSet:
             n = np.exp(muIntercept) * (1 + np.exp(lambdaIntercept))
             self.probaSamples = (self.expmu + self.explambda) / n
 
-    def applyreweighting(self, muIntercept, lambdaIntercept):
+    def compute_enoclick_eclick(self, muIntercept, lambdaIntercept):
+        #  print("compute_enoclick_eclick")
         if self.allcrossmods:
             # exact computation
             self.Z = self.expmu.sum() + self.explambda.sum()
@@ -87,21 +89,21 @@ class SampleSet:
             self.Eclick = self.explambda * self.weights
             if self.sampleFromPY0:  # correct importance weigthing formula
                 z0_on_z = 1 / np.mean((1 + self.explambda / self.expmu))  # = P(Y)
-                # print( "z0onz", z0_on_z)
+                # #  print( "z0onz", z0_on_z)
                 self.Eclick *= z0_on_z * (1 + np.exp(lambdaIntercept))
                 self.Enoclick *= z0_on_z * (1 + np.exp(lambdaIntercept))
 
-        self.pdisplays = self.Eclick + self.Enoclick
-
     def PredictInternal(self, model):
-        model.computedotprods(self)
-        self.applyreweighting(model.muIntercept, model.lambdaIntercept)
+        #  print("PredictInternal")
+        self.computedotprods(model)
+        self.compute_enoclick_eclick(model.muIntercept, model.lambdaIntercept)
         self.compute_prediction(model)
 
     def compute_prediction(self, model):
+        #  print("compute_prediction")
         predict = model.parameters * 0
         for w in model.displayWeights.values():
-            predict[w.indices] = w.feature.Project_(self.data, self.pdisplays)  # Correct for grads
+            predict[w.indices] = w.feature.Project_(self.data, self.Eclick + self.Enoclick)  # Correct for grads
         for w in model.clickWeights.values():
             predict[w.indices] = w.feature.Project_(self.data, self.Eclick)
         self.prediction = predict
@@ -110,14 +112,25 @@ class SampleSet:
         return self.prediction
 
     def UpdateSampleWithGibbs(self, model):
+        #  print("UpdateSampleWithGibbs")
         self.data = model.RunParallelGibbsSampler(self, maxNbRows=model.maxNbRowsperGibbsUpdate)
 
     def UpdateSampleWeights(self, model):
-        model.computedotprods(self)
+        #  print("UpdateSampleWeights")
+        self.computedotprods(model)
         self.computeProbaSamples(model.muIntercept, model.lambdaIntercept)
         self.setweights()
-        self.applyreweighting(model.muIntercept, model.lambdaIntercept)
+        self.compute_enoclick_eclick(model.muIntercept, model.lambdaIntercept)
         self.compute_prediction(model)
+
+    def computedotprods(self, model):
+        #  print("computedotprods")
+        lambdas = model.dotproducts(model.clickWeights, self.data) + model.lambdaIntercept
+        mus = model.dotproducts(model.displayWeights, self.data) + model.muIntercept
+        expmu = np.exp(mus)
+        explambda = np.exp(lambdas) * expmu
+        self.expmu = expmu
+        self.explambda = explambda
 
     def sampleY(self):
         pclick = self.explambda / (self.expmu + self.explambda)
@@ -135,10 +148,10 @@ class SampleSet:
         self.allcrossmods = True
         nbCrossModalities = self.countCrossmods()
         if nbCrossModalities > MAXMODALITIES:
-            print(f"too many crossmodalities ({nbCrossModalities:.1E}) ")
+            #  print(f"too many crossmodalities ({nbCrossModalities:.1E}) ")
             return self.sampleIndepedent(MAXMODALITIES)
         # else:
-        #    print( f"Building full set of {nbCrossModalities:.1E}  crossmodalities ")
+        #    #  print( f"Building full set of {nbCrossModalities:.1E}  crossmodalities ")
         crossmodalitiesdf = pd.DataFrame([[0, 1]], columns=["c", "probaSample"])
         for f in self.features:
             n = f.Size - 1  # -1 because last modality is "missing"
