@@ -1,3 +1,5 @@
+from typing import List
+from numpy.lib.arraypad import pad
 import pandas as pd
 import numpy as np
 import numba
@@ -29,7 +31,70 @@ def projectNUMBA(x, y, nbmods):
     return mods
 
 
-class FeatureMapping:
+def GetCfName(variables):
+    return "&".join(sorted(variables))
+
+
+def parseCFNames(features, crossfeaturesStr):
+    cfs = parseCF(features, crossfeaturesStr)
+    return [GetCfName(cf) for cf in cfs]
+
+
+def parseCF(features, crossfeaturesStr):
+    cfs = []
+    crossfeaturesStr = crossfeaturesStr.split("|")
+    for cfStr in crossfeaturesStr:
+        cfFeatures = cfStr.split("&")
+        nbWildcards = len([f for f in cfFeatures if f == "*"])
+        cfFeatures = [[f for f in cfFeatures if not f == "*"]]
+        for i in range(0, nbWildcards):
+            cfFeatures = [cf + [v] for v in features for cf in cfFeatures]
+        cfFeatures = [sorted(f) for f in cfFeatures]
+        cfs += cfFeatures
+    cfs = [list(sorted(set(cf))) for cf in cfs]
+    cfs = [cf for cf in cfs if len(cf) == 2]
+    # remove duplicates
+    dicoCfsStr = {}
+    for cf in cfs:
+        s = "&".join([str(f) for f in cf])
+        dicoCfsStr[s] = cf
+    cfs = [cf for cf in dicoCfsStr.values()]
+    return cfs
+
+
+class IMapping:
+    Size: int
+    Name: str
+
+    # returning feature values from a np.array of shape (nbfeatures, nbsamples)
+    def Values_(self, x: np.array):
+        pass
+
+    # x : np.array of shape (nbfeatures, nbsamples)
+    # y : array of len( nbsamples )
+    # return array with, for each modality m of feature: sum( y on samples where feature modality is m)
+    def Project_(self, x: np.ndarray, y: np.array) -> np.array:
+        pass
+
+
+class IFeatureMapping(IMapping):
+    _fid: int
+
+    def Values_(self, x: np.array):
+        return x[self._fid]
+
+    def Project_(self, x: np.ndarray, y: np.array) -> np.array:
+        x_values = x[self._fid]
+        return projectNUMBA(x_values, y, self.Size)
+
+    def __repr__(self):
+        return f"{self.Name}({self.Size})"
+
+    def toDF(self):
+        return pd.DataFrame({self.Name: np.arange(0, self.Size)})
+
+
+class FeatureMapping(IFeatureMapping):
     """class representing one feature and its set of modalities."""
 
     def __init__(self, name: str, df: pd.DataFrame, fid: int = 0, maxNbModalities: int = None):
@@ -63,22 +128,6 @@ class FeatureMapping:
         df[self.Name] = df[self.Name].apply(lambda x: self._dicoModalityToId.get(x, self._default))
         return df
 
-    # inverse transorm of Map
-    # def RetrieveModalities(self,df):
-    #    df[self.Name] = df[self.Name].apply( lambda x: -1 if x ==self._default else self._modalities[x] )
-    #    return df
-
-    # returning feature values from a np.array of shape (nbfeatures, nbsamples)
-    def Values_(self, x):
-        return x[self._fid]
-
-    # x : np.array of shape (nbfeatures, nbsamples)
-    # y : array of len( nbsamples )
-    # return array with, for each modality m of feature: sum( y on samples where feature modality is m)
-    def Project_(self, x, y):
-        x_values = x[self._fid]
-        return projectNUMBA(x_values, y, self.Size)
-
     def Values(self, df: pd.DataFrame):
         return df[self.Name].values
 
@@ -91,20 +140,21 @@ class FeatureMapping:
         data[groupedDF.index] = groupedDF[col]
         return data
 
-    def __repr__(self):
-        return f"{self.Name}({self.Size})"
 
-    def toDF(self):
-        return pd.DataFrame({self.Name: np.arange(0, self.Size)})
-
-
-class CrossFeaturesMapping:
-    """a crossfeature between two single features."""
+class ICrossFeaturesMapping(IMapping):
+    _fid1: int
+    _fid2: int
+    coefV2: int
+    Modulo: int
+    Size: int
+    Name: str
+    hashed: bool
+    _variables: List[IFeatureMapping]
 
     def __init__(
         self,
-        singleFeature1: FeatureMapping,
-        singleFeature2: FeatureMapping,
+        singleFeature1: IFeatureMapping,
+        singleFeature2: IFeatureMapping,
         maxNbModalities: int = None,
     ):
         self._variables = [singleFeature1, singleFeature2]
@@ -123,28 +173,14 @@ class CrossFeaturesMapping:
             self.Size = maxNbModalities
             self.Modulo = maxNbModalities
             self.hashed = True
-            self.coefV2 = 7907  # prime. todo: heuristic to find resonable number here.
+            self.coefV2 = 7907
 
-    def Values_(self, x):
+    def Values_(self, x: np.array) -> int:
         return (x[self._fid1] + self.coefV2 * x[self._fid2]) % self.Modulo
 
-    def Project_(self, x, y):
+    def Project_(self, x: np.ndarray, y: np.array) -> np.array:
         x_values = self.Values_(x)
         return projectNUMBA(x_values, y, self.Size)
-
-    def Values(self, df):
-        return (df[self._v1].values + self.coefV2 * df[self._v2].values) % self.Modulo
-
-    def Project(self, df, col):
-        x = self.Values(df)
-        y = df[col].values
-        if isinstance(x, np.int64):
-            raise Exception(f"x:{x},y:{y},fid:{self._fid},siz:{self.Size}")
-        return projectNUMBA(x, y, self.Size)
-
-    def Map(self, df):
-        df[self.Name] = self.Values(df)
-        return df
 
     def __repr__(self):
         s = "x".join([str(x) for x in self._variables])
@@ -165,35 +201,30 @@ class CrossFeaturesMapping:
         return df
 
 
-def GetCfName(variables):
-    return "&".join(sorted(variables))
+class CrossFeaturesMapping(ICrossFeaturesMapping):
+    """a crossfeature between two single features."""
 
+    def __init__(
+        self,
+        singleFeature1: FeatureMapping,
+        singleFeature2: FeatureMapping,
+        maxNbModalities: int = None,
+    ):
+        super().__init__(singleFeature1, singleFeature2, maxNbModalities)
 
-def parseCFNames(features, crossfeaturesStr):
-    cfs = parseCF(features, crossfeaturesStr)
-    return [GetCfName(cf) for cf in cfs]
+    def Values(self, df):
+        return (df[self._v1].values + self.coefV2 * df[self._v2].values) % self.Modulo
 
+    def Project(self, df, col):
+        x = self.Values(df)
+        y = df[col].values
+        if isinstance(x, np.int64):
+            raise Exception(f"x:{x},y:{y},fid:{self._fid},siz:{self.Size}")
+        return projectNUMBA(x, y, self.Size)
 
-def parseCF(features, crossfeaturesStr):
-    cfs = []
-    crossfeaturesStr = crossfeaturesStr.split("|")
-    for cfStr in crossfeaturesStr:
-        cfFeatures = cfStr.split("&")
-        nbWildcards = len([f for f in cfFeatures if f == "*"])
-        cfFeatures = [[f for f in cfFeatures if not f == "*"]]
-        for i in range(0, nbWildcards):
-            cfFeatures = [cf + [v] for v in features for cf in cfFeatures]
-        cfFeatures = [sorted(f) for f in cfFeatures]
-        cfs += cfFeatures
-    cfs = [list(sorted(set(cf))) for cf in cfs]
-    cfs = [cf for cf in cfs if len(cf) == 2]
-    # remove duplicates
-    dicoCfsStr = {}
-    for cf in cfs:
-        s = "&".join([str(f) for f in cf])
-        dicoCfsStr[s] = cf
-    cfs = [cf for cf in dicoCfsStr.values()]
-    return cfs
+    def Map(self, df):
+        df[self.Name] = self.Values(df)
+        return df
 
 
 class FeaturesSet:
