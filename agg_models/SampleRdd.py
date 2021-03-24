@@ -38,10 +38,10 @@ class SampleRdd:
 
     def UpdateSampleWithGibbs(self, model):
         #  print("UpdateSampleWithGibbs")
-        self.data = self.updateSamplesWithGibbsRdd(model)
+        self.data = self._updateSamplesWithGibbsRdd(model)
         self.data.checkpoint()
 
-    def updateSamplesWithGibbsRdd(self, model):
+    def _updateSamplesWithGibbsRdd(self, model):
         constantMRFParameters = model.constantMRFParameters
         variableMRFParameters = model.variableMRFParameters
 
@@ -59,31 +59,31 @@ class SampleRdd:
 
     def UpdateSampleWeights(self, model):
         #  print("UpdateSampleWeights")
-        rdd_sample_weights_with_expdotproducts = self.compute_rdd_expdotproducts(model)
-        rdd_sample_updated_weights_with_expdotproducts = self.compute_weights(
+        rdd_sample_weights_with_expdotproducts = self._compute_rdd_expdotproducts(model)
+        rdd_sample_updated_weights_with_expdotproducts = self._compute_weights(
             model, rdd_sample_weights_with_expdotproducts
         )
-        self.data = self.compute_enoclick_eclick_zi(model, rdd_sample_updated_weights_with_expdotproducts)
-        self.compute_prediction(model)
+        self.data = self._compute_enoclick_eclick_zi(model, rdd_sample_updated_weights_with_expdotproducts)
+        self._compute_prediction(model)
 
-    def compute_prediction(self, model):
-        #  print("compute_prediction")
-        pdisplays, z_on_z0 = self.compute_prediction_reduce(model, self.data)
+    def _compute_prediction(self, model):
+        #  print("_compute_prediction")
+        pdisplays, z_on_z0 = self._compute_prediction_reduce(model, self.data)
         # Compute z0_on_z : 1 / np.mean(z_i) = np.sum(z_zi) / nbSamples
         predict = pdisplays * self.Size / z_on_z0
         self.prediction = predict
 
     def PredictInternal(self, model):
         #  print("PredictInternal")
-        rdd_sample_weights_with_expdotproducts = self.compute_rdd_expdotproducts(model)
-        self.data = self.compute_enoclick_eclick_zi(model, rdd_sample_weights_with_expdotproducts)
-        self.compute_prediction(model)
+        rdd_sample_weights_with_expdotproducts = self._compute_rdd_expdotproducts(model)
+        self.data = self._compute_enoclick_eclick_zi(model, rdd_sample_weights_with_expdotproducts)
+        self._compute_prediction(model)
 
     def GetPrediction(self, model):
-        # self.compute_prediction(model)
+        # self._compute_prediction(model)
         return self.prediction
 
-    def compute_rdd_expdotproducts(self, model):
+    def _compute_rdd_expdotproducts(self, model):
         #  print("computedotprods")
         """
         Input: RDD containing tuple x,w,(...)
@@ -114,7 +114,7 @@ class SampleRdd:
 
         return self.data.map(expdotproducts)
 
-    def compute_weights(self, model, rdd_samples_weights_with_expdotproducts):
+    def _compute_weights(self, model, rdd_samples_weights_with_expdotproducts):
         """
         Input: RDD containing tuple x,w,expmu,explambda
             x: matrix (K,F) of K samples with F features
@@ -147,7 +147,7 @@ class SampleRdd:
         else:
             return rdd_samples_weights_with_expdotproducts.map(_computeWeight)
 
-    def compute_enoclick_eclick_zi(self, model, rdd_samples_weights_with_expdotproducts):
+    def _compute_enoclick_eclick_zi(self, model, rdd_samples_weights_with_expdotproducts):
         """
         Input: RDD containing tuple x,w,expmu,explambda
             x: matrix (K,F) of K samples with F features
@@ -177,7 +177,7 @@ class SampleRdd:
 
         return rdd_samples_weights_with_expdotproducts.map(_computePDisplays)
 
-    def compute_prediction_reduce(self, model, x_w_enoclick_eclick):
+    def _compute_prediction_reduce(self, model, x_w_enoclick_eclick):
         """
         Input: RDD containing tuple x,w,enoclick,eclick,z_i
             x: matrix (K,F) of K samples with F features

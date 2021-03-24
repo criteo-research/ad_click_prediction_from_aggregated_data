@@ -44,12 +44,12 @@ class SampleSet:
         else:
             self.probaIndep = self.computeProbaIndep()
             self.probaSamples = self.probaIndep
-            self.setweights()
+            self._setweights()
         self.expmu = None
         self.explambda = None
         self.prediction = None
 
-    def setweights(self):
+    def _setweights(self):
         #  print("SetWeights")
         if self.allcrossmods:
             self.weights = np.ones(self.Size)
@@ -57,8 +57,8 @@ class SampleSet:
             scaling = 1.0 / self.Size
             self.weights = scaling / self.probaSamples
 
-    def computeProbaSamples(self, muIntercept, lambdaIntercept):
-        #  print("computeProbaSamples")
+    def _computeProbaSamples(self, muIntercept, lambdaIntercept):
+        #  print("_computeProbaSamples")
         if self.sampleFromPY0:
             # n = np.exp( self.muIntercept ) * ( 1 + np.exp(self.lambdaIntercept) )
             n = np.exp(muIntercept)
@@ -67,8 +67,8 @@ class SampleSet:
             n = np.exp(muIntercept) * (1 + np.exp(lambdaIntercept))
             self.probaSamples = (self.expmu + self.explambda) / n
 
-    def compute_enoclick_eclick(self, muIntercept, lambdaIntercept):
-        #  print("compute_enoclick_eclick")
+    def _compute_enoclick_eclick(self, muIntercept, lambdaIntercept):
+        #  print("_compute_enoclick_eclick")
         if self.allcrossmods:
             # exact computation
             self.Z = self.expmu.sum() + self.explambda.sum()
@@ -95,12 +95,12 @@ class SampleSet:
 
     def PredictInternal(self, model):
         #  print("PredictInternal")
-        self.computedotprods(model)
-        self.compute_enoclick_eclick(model.muIntercept, model.lambdaIntercept)
-        self.compute_prediction(model)
+        self._computedotprods(model)
+        self._compute_enoclick_eclick(model.muIntercept, model.lambdaIntercept)
+        self._compute_prediction(model)
 
-    def compute_prediction(self, model):
-        #  print("compute_prediction")
+    def _compute_prediction(self, model):
+        #  print("_compute_prediction")
         predict = model.parameters * 0
         for w in model.displayWeights.values():
             predict[w.indices] = w.feature.Project_(self.data, self.Eclick + self.Enoclick)  # Correct for grads
@@ -117,14 +117,14 @@ class SampleSet:
 
     def UpdateSampleWeights(self, model):
         #  print("UpdateSampleWeights")
-        self.computedotprods(model)
-        self.computeProbaSamples(model.muIntercept, model.lambdaIntercept)
-        self.setweights()
-        self.compute_enoclick_eclick(model.muIntercept, model.lambdaIntercept)
-        self.compute_prediction(model)
+        self._computedotprods(model)
+        self._computeProbaSamples(model.muIntercept, model.lambdaIntercept)
+        self._setweights()
+        self._compute_enoclick_eclick(model.muIntercept, model.lambdaIntercept)
+        self._compute_prediction(model)
 
-    def computedotprods(self, model):
-        #  print("computedotprods")
+    def _computedotprods(self, model):
+        #  print("_computedotprods")
         lambdas = model.dotproducts(model.clickWeights, self.data) + model.lambdaIntercept
         mus = model.dotproducts(model.displayWeights, self.data) + model.muIntercept
         expmu = np.exp(mus)
