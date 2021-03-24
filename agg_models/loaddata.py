@@ -204,8 +204,37 @@ def getDataset(name, forceSamplingRate=None, splitOnDate=None):
     else:
         dataset = criteo_attribution_dataset
 
+    train, valid = get_dataset(name, dataset, samplingRate, splitOnDate)
+
+    features = dataset.features
+
+    label = dataset.labels[0]
+    cols = features + [label] + (["day"] if splitOnDate else list())
+    train = train[cols]
+    valid = valid[cols]
+
     print(f"Sampling ratio :{samplingRate}")
-    train, valid, allvars = train, valid, allvars = run(dataset, samplingRate, splitOnDate=splitOnDate, verbose=False)
+    print(f"Nb train samples: {len(train)} , Nb valid samples: {len(valid)}  ")
+    print(f"features:{features}")
+
+    return train, valid, features, label
+
+
+def get_dataset(name, dataset, samplingRate, splitOnDate):
+    train_path = f"{name}_train_{samplingRate}_{splitOnDate}.parquet"
+    valid_path = f"{name}_valid_{samplingRate}_{splitOnDate}.parquet"
+    if not os.path.exists(train_path) or not os.path.exists(valid_path):
+        train, valid = build_dataset(name, dataset, samplingRate, splitOnDate)
+        train.to_parquet(train_path)
+        valid.to_parquet(valid_path)
+    else:
+        train = pd.read_parquet(train_path)
+        valid = pd.read_parquet(valid_path)
+    return train, valid
+
+
+def build_dataset(name, dataset, samplingRate, splitOnDate):
+    train, valid, allvars = run(dataset, samplingRate, splitOnDate=splitOnDate, verbose=False)
     if name == "full":
         # on dataset-full, some features have a marge number of modalities with very few events.
         # there is not much to learn from those modalities,
@@ -219,13 +248,4 @@ def getDataset(name, forceSamplingRate=None, splitOnDate=None):
 
             train[f] = train[f].apply(lambda x: x if x in keptcat7 else 0)
             valid[f] = valid[f].apply(lambda x: x if x in keptcat7 else 0)
-    features = dataset.features
-    print(f"Nb train samples: {len(train)} , Nb valid samples: {len(valid)}  ")
-    print(f"features:{features}")
-
-    label = dataset.labels[0]
-    cols = features + [label] + (["day"] if splitOnDate else list())
-    train = train[cols]
-    valid = valid[cols]
-
-    return train, valid, features, label
+    return train, valid
