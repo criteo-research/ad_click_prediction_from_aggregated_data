@@ -29,6 +29,22 @@ class WrapWithPrecond:
         return self.model.computeLoss()
 
 
+def simpleGradientStep(
+    model,
+    nbiter,
+    alpha=0.1,
+    endIterCallback=None,
+):
+    for _ in range(0, nbiter):
+        g = model.computeGradient()
+        d = -g * model.computeInvHessianDiag()
+        x = model.parameters
+        xnew = x + alpha * d
+        model.setparameters(xnew)
+        if endIterCallback is not None:
+            endIterCallback()
+
+
 def followGradWithLinesearch(
     model,
     nbiter=100,

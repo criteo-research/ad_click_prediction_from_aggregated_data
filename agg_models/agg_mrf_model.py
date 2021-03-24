@@ -343,7 +343,7 @@ class AggMRFModel(BaseAggModel):
         rows = samples.data.transpose()
         weights = samples.weights.transpose()
         starts = np.arange(0, len(rows), maxNbRows)
-        slices = [(rows[start : start + maxNbRows], weights[start : start + maxNbRows]) for start in starts]
+        slices = [(rows[start : start + maxNbRows]) for start in starts]
         return SampleRdd(
             [self.displayProjections[var] for var in self.features],
             self.nbSamples,
@@ -373,15 +373,12 @@ class AggMRFModel(BaseAggModel):
         return max(pmodel / probaSamples)
 
     def fit(self, nbIter=100, alpha=0.01):
-        lineSearch = Optimizers.followGradWithLinesearch(
+        Optimizers.simpleGradientStep(
             self,
             nbiter=nbIter,
             alpha=alpha,
-            usePrecondAtOptim=False,
-            usePrecondInDescent=True,
             endIterCallback=lambda: self.updateAllSamplesWithGibbs(),
         )
-        return lineSearch.alpha
 
     def predictDF(self, df):
         df = self.transformDf(df)

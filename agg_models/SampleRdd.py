@@ -32,14 +32,14 @@ class SampleRdd:
         self.features = [p.feature for p in projections]
         self.featurenames = [f.Name for f in self.features]
         self.Size = nbSamples
-        self.data = data
+        self.rddSamples = data
         self.allcrossmods = False
         self.prediction = None
 
     def UpdateSampleWithGibbs(self, model):
         #  print("UpdateSampleWithGibbs")
-        self.data = self._updateSamplesWithGibbsRdd(model)
-        self.data.checkpoint()
+        self.rddSamples = self._updateSamplesWithGibbsRdd(model)
+        self.rddSamples.checkpoint()
 
     def _updateSamplesWithGibbsRdd(self, model):
         constantMRFParameters = model.constantMRFParameters
@@ -50,34 +50,37 @@ class SampleRdd:
                 constantMRFParameters.value.explosedDisplayWeights,
                 constantMRFParameters.value.modalitiesByVarId,
                 variableMRFParameters.value.parameters,
-                sampleWithWeight[0],
+                sampleWithWeight,
                 1,
             )
-            return sample, sampleWithWeight[1]
+            return sample
 
-        return self.data.map(myfun_sampling_from_p_y0)
+        return self.rddSamples.map(myfun_sampling_from_p_y0)
 
     def UpdateSampleWeights(self, model):
         #  print("UpdateSampleWeights")
-        rdd_sample_weights_with_expdotproducts = self._compute_rdd_expdotproducts(model)
-        rdd_sample_updated_weights_with_expdotproducts = self._compute_weights(
-            model, rdd_sample_weights_with_expdotproducts
+        rdd_sample_expdotproducts = self._compute_rdd_expdotproducts(model)
+        rdd_sample_weights_expdotproducts = self._compute_weights(
+            model, rdd_sample_expdotproducts
         )
-        self.data = self._compute_enoclick_eclick_zi(model, rdd_sample_updated_weights_with_expdotproducts)
-        self._compute_prediction(model)
+        rdd_sample_weights_enoclick_eclick_zi = self._compute_enoclick_eclick_zi(model, rdd_sample_weights_expdotproducts)
+        self._compute_prediction(model, rdd_sample_weights_enoclick_eclick_zi)
 
-    def _compute_prediction(self, model):
+    def _compute_prediction(self, model, rdd_sample_weights_enoclick_eclick_zi):
         #  print("_compute_prediction")
-        pdisplays, z_on_z0 = self._compute_prediction_reduce(model, self.data)
+        pdisplays, z_on_z0 = self._compute_prediction_reduce(model, rdd_sample_weights_enoclick_eclick_zi)
         # Compute z0_on_z : 1 / np.mean(z_i) = np.sum(z_zi) / nbSamples
         predict = pdisplays * self.Size / z_on_z0
         self.prediction = predict
 
     def PredictInternal(self, model):
         #  print("PredictInternal")
-        rdd_sample_weights_with_expdotproducts = self._compute_rdd_expdotproducts(model)
-        self.data = self._compute_enoclick_eclick_zi(model, rdd_sample_weights_with_expdotproducts)
-        self._compute_prediction(model)
+        rdd_sample_expdotproducts = self._compute_rdd_expdotproducts(model)
+        rdd_sample_weights_expdotproducts = self._compute_weights(
+            model, rdd_sample_expdotproducts
+        )
+        rdd_sample_weights_enoclick_eclick_zi = self._compute_enoclick_eclick_zi(model, rdd_sample_weights_expdotproducts)
+        self._compute_prediction(model, rdd_sample_weights_enoclick_eclick_zi)
 
     def GetPrediction(self, model):
         # self._compute_prediction(model)
@@ -99,8 +102,7 @@ class SampleRdd:
         constantMRFParameters = model.constantMRFParameters
         variableMRFParameters = model.variableMRFParameters
 
-        def expdotproducts(samples_weights):
-            x, weights = samples_weights[0], samples_weights[1]
+        def expdotproducts(x):
             t_x = x.transpose()
             mus = np.zeros(x.shape[0])
             lambdas = np.zeros(x.shape[0])
@@ -110,11 +112,11 @@ class SampleRdd:
                 lambdas += variableMRFParameters.value.parameters[w.feature.Values_(t_x) + w.offset]
             expmu = np.exp(mus + constantMRFParameters.value.muIntercept)
             explambda = expmu * np.exp(lambdas + constantMRFParameters.value.lambdaIntercept)
-            return x, weights, expmu, explambda
+            return x, expmu, explambda
 
-        return self.data.map(expdotproducts)
+        return self.rddSamples.map(expdotproducts)
 
-    def _compute_weights(self, model, rdd_samples_weights_with_expdotproducts):
+    def _compute_weights(self, model, rdd_samples_expdotproducts):
         """
         Input: RDD containing tuple x,w,expmu,explambda
             x: matrix (K,F) of K samples with F features
@@ -132,22 +134,22 @@ class SampleRdd:
         #  print("SetWeights")
         constantMRFParameters = model.constantMRFParameters
 
-        def _computeWeightFromPY0(samples_weights_exp_mu_lambda):
-            x, weights, expmu, explambda = samples_weights_exp_mu_lambda
+        def _computeWeightFromPY0(samples_exp_mu_lambda):
+            x, expmu, explambda = samples_exp_mu_lambda
             weights = constantMRFParameters.value.norm / expmu / constantMRFParameters.value.nbSamples
             return x, weights, expmu, explambda
 
-        def _computeWeight(samples_weights_exp_mu_lambda):
-            x, weights, expmu, explambda = samples_weights_exp_mu_lambda
+        def _computeWeight(samples_exp_mu_lambda):
+            x, expmu, explambda = samples_exp_mu_lambda
             weights = constantMRFParameters.value.norm / (expmu + explambda) / constantMRFParameters.value.nbSamples
             return x, weights, expmu, explambda
 
         if self.sampleFromPY0:
-            return rdd_samples_weights_with_expdotproducts.map(_computeWeightFromPY0)
+            return rdd_samples_expdotproducts.map(_computeWeightFromPY0)
         else:
-            return rdd_samples_weights_with_expdotproducts.map(_computeWeight)
+            return rdd_samples_expdotproducts.map(_computeWeight)
 
-    def _compute_enoclick_eclick_zi(self, model, rdd_samples_weights_with_expdotproducts):
+    def _compute_enoclick_eclick_zi(self, model, rdd_samples_weights_expdotproducts):
         """
         Input: RDD containing tuple x,w,expmu,explambda
             x: matrix (K,F) of K samples with F features
@@ -175,7 +177,7 @@ class SampleRdd:
                 enoclick *= 1 + np.exp(constantMRFParameters.value.lambdaIntercept)
             return x, weights, enoclick, eclick, z_i
 
-        return rdd_samples_weights_with_expdotproducts.map(_computePDisplays)
+        return rdd_samples_weights_expdotproducts.map(_computePDisplays)
 
     def _compute_prediction_reduce(self, model, x_w_enoclick_eclick):
         """
@@ -202,6 +204,6 @@ class SampleRdd:
                 p[w.indices] = w.feature.Project_(t_x, eclick)
             return p, z_i
 
-        return x_w_enoclick_eclick.map(computePredictions).reduce(
+        return x_w_enoclick_eclick.map(computePredictions).treeReduce(
             lambda p_z, p_z1: (p_z[0] + p_z1[0], p_z[1] + p_z1[1])
         )
