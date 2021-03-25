@@ -94,6 +94,7 @@ class AggMRFModel(BaseAggModel):
         if regulL2Click is None:
             self.regulL2Click = regulL2
         self.lastPredict = None
+        self.garbage = list()
         self.sparkSession = sparkSession
         # Preparing weights, parameters, samples ...
         self.prepareFit()
@@ -143,7 +144,7 @@ class AggMRFModel(BaseAggModel):
             self.parameters[weights.indices] = np.log(np.maximum(proj.Data, self.priorDisplays)) - logNbDisplay
             # init to log( P(v | C=0 ) instead ???
         (exportedDisplayWeights, exportedClickWeights, modalitiesByVarId, parameters) = self.exportWeightsAll()
-        if self.sparkSession:
+        if self.sparkSession is not None:
             self.constantMRFParameters = self.sparkSession.sparkContext.broadcast(
                 ConstantMRFParameters(
                     self.nbSamples,
@@ -164,7 +165,7 @@ class AggMRFModel(BaseAggModel):
         self.setWeights()
         self.setActiveFeatures(self.activeFeatures)  # keeping only those active at the beginning
         self.initParameters()
-        if self.sparkSession:
+        if self.sparkSession is not None:
             self.samples = self.buildSamplesRddFromSampleSet(self.samples)
         self.update()
         return
@@ -189,8 +190,8 @@ class AggMRFModel(BaseAggModel):
     def setparameters(self, x):
         self.parameters = x
 
-        if self.sparkSession and self.variableMRFParameters is not None:
-            self.variableMRFParameters.unpersist()
+        if self.sparkSession is not None and self.variableMRFParameters is not None:
+            self.garbage.append(self.variableMRFParameters)
             self.variableMRFParameters = self.sparkSession.sparkContext.broadcast(
                 VariableMRFParameters(self.parameters)
             )
@@ -220,6 +221,10 @@ class AggMRFModel(BaseAggModel):
         if not samples.allcrossmods:
             # Not applying Gibbs if full samples was generated
             samples.UpdateSampleWithGibbs(self)
+            if self.sparkSession is not None:
+                for k in self.garbage:
+                    k.destroy()
+                self.garbage = list()
         samples.UpdateSampleWeights(self)
 
     def getPredictionsVector(self, samples):

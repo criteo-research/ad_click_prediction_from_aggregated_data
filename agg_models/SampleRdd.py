@@ -40,6 +40,7 @@ class SampleRdd:
         #  print("UpdateSampleWithGibbs")
         self.rddSamples = self._updateSamplesWithGibbsRdd(model)
         self.rddSamples.checkpoint()
+        self.rddSamples.count()
 
     def _updateSamplesWithGibbsRdd(self, model):
         constantMRFParameters = model.constantMRFParameters
