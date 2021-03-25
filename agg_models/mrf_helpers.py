@@ -585,3 +585,64 @@ def getVectorValuesAtIndex(x, indexingMatrix):
         for j in range(0, indexingMatrix.shape[1]):
             r[i, j] = x[indexingMatrix[i, j]]
     return r
+
+
+
+@jit(nopython=True)
+def gibssOneSampleFromPY0(exportedDisplayWeights, modalitiesByVarId, paramsVector, x, nbsteps):
+    (
+        allcoefsv,
+        allcoefsv2,
+        alloffsets,
+        allotherfeatureid,
+        allmodulos,
+    ) = exportedDisplayWeights
+
+    # Iterating on nbsteps steps
+    for i in np.arange(0, nbsteps):
+
+        # List of features ( one feature <=> its index in the arrays )
+        f = np.arange(0, len(x))
+        #  Gibbs sampling may converge faster if the order in which we sample features is randomized.
+        np.random.shuffle(f)
+
+        # For each feature, ressample this feature conditionally to the other
+        for varId in f:
+
+            # data describing the different crossfeatures involving varId  in " K(x).mu"
+            # Those things are arrays, of len the number of crossfeatures involving varId.
+            disp_coefsv = allcoefsv[varId]
+            disp_coefsv2 = allcoefsv2[varId]
+            disp_offsets = alloffsets[varId]
+            disp_otherfeatureid = allotherfeatureid[varId]
+            disp_modulos = allmodulos[varId]
+
+            # array of possible modalities of varId
+            modalities = modalitiesByVarId[varId]  # Should be 0,1,2 ... NbModalities
+            # for each modality, compute P( modality | other features ) as exp( dotproduct)
+            # initializing dotproduct
+            mus = np.zeros( len(modalities))
+
+            # Computing the dotproducts
+            #  For each crossfeature containing varId
+            for varJ in np.arange(0, len(disp_coefsv)):
+                modulo = disp_modulos[varJ]
+                # let m a modality of feature varId, and m' a modality of the other feature
+                #  Value of the crossfeature is " m *  disp_coefsv[varJ] + m' * disp_coefsv2[varJ]  "
+                # values of m' in the data
+                modsJ = x[disp_otherfeatureid[varJ]] * disp_coefsv2[varJ]
+                # all possible modality m
+                mods = modalities * disp_coefsv[varJ]
+                # Computing crossfeatures
+                # this is a matrix of shape (nbSamples, nbModalities of varId)
+                crossmods = ((modsJ + mods) % modulo) + disp_offsets[varJ]
+                # Adding crossfeature weight.
+                mus += paramsVector[crossmods]
+
+            mus = np.exp(mus)
+            # Sampling now modality of varId
+            varnew = weightedSampleNUMBA(mus)
+            # updating the samples
+            x[varId] = varnew
+    return x
+
