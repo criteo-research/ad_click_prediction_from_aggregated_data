@@ -21,8 +21,19 @@ def mybisect(a: np.ndarray, x):
             left = current
         else:
             right = current
+    if x >= a[left]:
+        return right
     return left
 
+
+## Checking that mybisect indeed returns the same value as bisect.bisect:
+def check_mybisect():
+    a = np.array([  1.0,2.0 , 3.0])
+    testedvalues =  list(a) + list(np.random.random(100)*4  )
+    for x in testedvalues:
+        if bisect.bisect(a,x) != mybisect(a,x):
+            return False
+    return True
 
 @jit(nopython=True)
 def weightedSampleNUMBA(p):
