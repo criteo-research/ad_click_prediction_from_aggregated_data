@@ -11,6 +11,7 @@ from aggregated_models.featuremappings import (
 
 MAXMODALITIES = 1e7
 
+
 # set of samples of 'x' used internally by AggMRFModel
 class SampleSet:
     def __init__(

@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from aggregated_models.aggLogistic import AggLogistic
 
+
 # model averaging several submodels
 class EnsembleModel:
     def __init__(self, models, averaging):

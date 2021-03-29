@@ -5,7 +5,8 @@ import math
 
 
 class LineSearchWithOnlyGrad:
-    """Line search method for minimizing convex function with gradient descent, where only gradient is computable (ie function f itself is *not* available)
+    """Line search method for minimizing convex function with gradient descent,
+    where only gradient is computable (ie function f itself is *not* available)
     Idea:  ensure that f(x+dx) < f(x) but looking for a step dx such that grad(x+dx).dx is still negative.
     Parameters:
      - gradFun: array -> array  Function computing grad(x).

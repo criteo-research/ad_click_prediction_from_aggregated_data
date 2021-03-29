@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import numba
 from aggregated_models import noiseDistributions
 from aggregated_models.diff_priv_noise import GaussianMechanism, LaplaceMechanism
 
@@ -17,9 +18,6 @@ class DataProjection:
         df = self.feature.toDF()
         df[self.colName] = self.Data
         return df
-
-
-import numba
 
 
 @numba.njit

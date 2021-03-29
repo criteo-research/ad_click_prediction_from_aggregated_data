@@ -4,6 +4,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.feature_extraction import FeatureHasher
 from aggregated_models.featuremappings import FeaturesSet
 
+
 # Wrapper around sklearn.feature_extraction.FeatureHasher
 class Hasher:
     def __init__(self, features, hashspace=2 ** 16):

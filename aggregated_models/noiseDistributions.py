@@ -101,7 +101,8 @@ def expectedLaplaceAffineApprox(observedCount, poisson, epsilon):
     p1 = 0.95  # slope between the two cut points
     p2 = 0.05  # slope before and after the two cut points
 
-    # note:  looking at the curves, the true values seems actually to be 1.0 and 0.0. Avoiding the 0.0 however might avoid getting a zero gradient in this area, and might avoid complications.
+    # note:  looking at the curves, the true values seems actually to be 1.0 and 0.0.
+    # Avoiding the 0.0 however might avoid getting a zero gradient in this area, and might avoid complications.
 
     valAtLowerCut = poisson + p1 * (lowerCut - poisson)
     valAtUpperCut = poisson + p1 * (upperCut - poisson)

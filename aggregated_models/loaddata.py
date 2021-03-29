@@ -240,7 +240,8 @@ def build_dataset(name, dataset, samplingRate, splitOnDate):
         # there is not much to learn from those modalities,
         # so they were grouped together in a single "other" modality to limit (a bit) the memory
         # footprint of learning the models.
-        # We used the modalities count on the trainset to make sure this grouping does not leak information on validation data.
+        # We used the modalities count on the trainset to make sure
+        # this grouping does not leak information on validation data.
         minNbModalities = 20
         for f in ["cat7", "cat3"]:
             b = train[["c", f]].groupby(f).sum().reset_index()

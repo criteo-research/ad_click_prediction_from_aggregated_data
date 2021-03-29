@@ -4,7 +4,7 @@ import sys
 ipython = get_ipython()
 try:
     _showtraceback_default
-except:
+except Exception:
     _showtraceback_default = ipython._showtraceback
 
 

@@ -12,8 +12,10 @@ from aggregated_models.baseaggmodel import BaseAggModel
 #  It is trained from:
 #   - the aggregated labels
 #   - the full event level dataset without labels.
-#   Note that those data are sufficient to fully train a logistic model. Tests show there is no difference in perfomances with other implentation of logistic regression.
-#  Side note:  this was implemented to begin with as a way to test BaseAggModel, it was finally faster than the other logistic regression I has, and so was used in most tests.
+# Note that those data are sufficient to fully train a logistic model.
+# Tests show there is no difference in perfomances with other implentation of logistic regression.
+# Side note:  this was implemented to begin with as a way to test BaseAggModel,
+# it was finally faster than the other logistic regression I has, and so was used in most tests.
 
 
 class AggLogistic(BaseAggModel):
@@ -100,7 +102,7 @@ class AggLogistic(BaseAggModel):
     def fit(self, train, nbIter=50, verbose=False):
         try:
             self.samples
-        except:
+        except Exception:
             self.prepareFit(train)
         Optimizers.lbfgs(self, nbiter=nbIter, alpha=0.01, verbose=verbose)
 

@@ -26,7 +26,7 @@ def mybisect(a: np.ndarray, x):
     return left
 
 
-## Checking that mybisect indeed returns the same value as bisect.bisect:
+# Checking that mybisect indeed returns the same value as bisect.bisect:
 def check_mybisect():
     a = np.array([1.0, 2.0, 3.0])
     testedvalues = list(a) + list(np.random.random(100) * 4)
