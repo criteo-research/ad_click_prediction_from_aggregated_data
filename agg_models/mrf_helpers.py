@@ -28,12 +28,13 @@ def mybisect(a: np.ndarray, x):
 
 ## Checking that mybisect indeed returns the same value as bisect.bisect:
 def check_mybisect():
-    a = np.array([  1.0,2.0 , 3.0])
-    testedvalues =  list(a) + list(np.random.random(100)*4  )
+    a = np.array([1.0, 2.0, 3.0])
+    testedvalues = list(a) + list(np.random.random(100) * 4)
     for x in testedvalues:
-        if bisect.bisect(a,x) != mybisect(a,x):
+        if bisect.bisect(a, x) != mybisect(a, x):
             return False
     return True
+
 
 @jit(nopython=True)
 def weightedSampleNUMBA(p):
@@ -587,9 +588,8 @@ def getVectorValuesAtIndex(x, indexingMatrix):
     return r
 
 
-
 @jit(nopython=True)
-def gibssOneSampleFromPY0(exportedDisplayWeights, modalitiesByVarId, paramsVector, x, nbsteps):
+def gibbsOneSampleFromPY0(exportedDisplayWeights, modalitiesByVarId, paramsVector, x, nbsteps):
     (
         allcoefsv,
         allcoefsv2,
@@ -621,7 +621,7 @@ def gibssOneSampleFromPY0(exportedDisplayWeights, modalitiesByVarId, paramsVecto
             modalities = modalitiesByVarId[varId]  # Should be 0,1,2 ... NbModalities
             # for each modality, compute P( modality | other features ) as exp( dotproduct)
             # initializing dotproduct
-            mus = np.zeros( len(modalities))
+            mus = np.zeros(len(modalities))
 
             # Computing the dotproducts
             #  For each crossfeature containing varId
@@ -645,4 +645,3 @@ def gibssOneSampleFromPY0(exportedDisplayWeights, modalitiesByVarId, paramsVecto
             # updating the samples
             x[varId] = varnew
     return x
-

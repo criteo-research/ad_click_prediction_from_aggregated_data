@@ -20,7 +20,7 @@ class SampleSet:
         decollapseGibbs=False,
         sampleFromPY0=False,
         maxNbRowsperGibbsUpdate=50,
-        data=None
+        data=None,
     ):
         self.projections = projections
         self.decollapseGibbs = decollapseGibbs
@@ -46,7 +46,6 @@ class SampleSet:
         self.prediction = None
 
     def _setweights(self):
-        #  print("SetWeights")
         if self.allcrossmods:
             self.weights = np.ones(self.Size)
         else:
@@ -54,7 +53,6 @@ class SampleSet:
             self.weights = scaling / self.probaSamples
 
     def _computeProbaSamples(self, muIntercept, lambdaIntercept):
-        #  print("_computeProbaSamples")
         if self.sampleFromPY0:
             # n = np.exp( self.muIntercept ) * ( 1 + np.exp(self.lambdaIntercept) )
             n = np.exp(muIntercept)
@@ -64,7 +62,6 @@ class SampleSet:
             self.probaSamples = (self.expmu + self.explambda) / n
 
     def _compute_enoclick_eclick(self, muIntercept, lambdaIntercept):
-        #  print("_compute_enoclick_eclick")
         if self.allcrossmods:
             # exact computation
             self.Z = self.expmu.sum() + self.explambda.sum()
@@ -85,18 +82,15 @@ class SampleSet:
             self.Eclick = self.explambda * self.weights
             if self.sampleFromPY0:  # correct importance weigthing formula
                 z0_on_z = 1 / np.mean((1 + self.explambda / self.expmu))  # = P(Y)
-                # #  print( "z0onz", z0_on_z)
                 self.Eclick *= z0_on_z * (1 + np.exp(lambdaIntercept))
                 self.Enoclick *= z0_on_z * (1 + np.exp(lambdaIntercept))
 
     def PredictInternal(self, model):
-        #  print("PredictInternal")
         self._computedotprods(model)
         self._compute_enoclick_eclick(model.muIntercept, model.lambdaIntercept)
         self._compute_prediction(model)
 
     def _compute_prediction(self, model):
-        #  print("_compute_prediction")
         predict = model.parameters * 0
         for w in model.displayWeights.values():
             predict[w.indices] = w.feature.Project_(self.data, self.Eclick + self.Enoclick)  # Correct for grads
@@ -108,11 +102,9 @@ class SampleSet:
         return self.prediction
 
     def UpdateSampleWithGibbs(self, model):
-        #  print("UpdateSampleWithGibbs")
         self.data = model.RunParallelGibbsSampler(self, maxNbRows=model.maxNbRowsperGibbsUpdate)
 
     def UpdateSampleWeights(self, model):
-        #  print("UpdateSampleWeights")
         self._computedotprods(model)
         self._computeProbaSamples(model.muIntercept, model.lambdaIntercept)
         self._setweights()
@@ -120,7 +112,6 @@ class SampleSet:
         self._compute_prediction(model)
 
     def _computedotprods(self, model):
-        #  print("_computedotprods")
         lambdas = model.dotproducts(model.clickWeights, self.data) + model.lambdaIntercept
         mus = model.dotproducts(model.displayWeights, self.data) + model.muIntercept
         expmu = np.exp(mus)
@@ -144,7 +135,6 @@ class SampleSet:
         self.allcrossmods = True
         nbCrossModalities = self.countCrossmods()
         if nbCrossModalities > MAXMODALITIES:
-            #  print(f"too many crossmodalities ({nbCrossModalities:.1E}) ")
             return self.sampleIndepedent(MAXMODALITIES)
         # else:
         #    #  print( f"Building full set of {nbCrossModalities:.1E}  crossmodalities ")
