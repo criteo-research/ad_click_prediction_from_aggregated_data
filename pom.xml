@@ -9,7 +9,7 @@
   </parent>
 
   <groupId>com.criteo.python</groupId>
-  <artifactId>agg-models</artifactId>
+  <artifactId>aggregated-models</artifactId>
   <version>1.0-SNAPSHOT</version>
 
   <properties>

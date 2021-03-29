@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
-from agg_models import noiseDistributions
-from agg_models.diff_priv_noise import GaussianMechanism, LaplaceMechanism
+from aggregated_models import noiseDistributions
+from aggregated_models.diff_priv_noise import GaussianMechanism, LaplaceMechanism
 
 
 class DataProjection:

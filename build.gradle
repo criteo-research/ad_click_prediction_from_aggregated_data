@@ -1,7 +1,7 @@
 apply plugin: 'com.criteo.python-module'
 
 python {
-    packageName = 'agg-models'
+    packageName = 'aggregated-models'
     publishWheel = true
     pexVersion = 'pex==2.1.1'
 }

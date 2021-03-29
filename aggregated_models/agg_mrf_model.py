@@ -5,17 +5,17 @@ import random
 from collections import Counter
 from joblib import Parallel, delayed
 
-from agg_models.featuremappings import (
+from aggregated_models.featuremappings import (
     CrossFeaturesMapping,
     FeatureMapping,
     DataProjection,
 )
-from agg_models.SampleSet import SampleSet
-from agg_models.SampleRdd import SampleRdd
-from agg_models import featuremappings
-from agg_models.baseaggmodel import BaseAggModel
-from agg_models import Optimizers
-from agg_models.mrf_helpers import ComputeRWpred, fastGibbsSample, fastGibbsSampleFromPY0
+from aggregated_models.SampleSet import SampleSet
+from aggregated_models.SampleRdd import SampleRdd
+from aggregated_models import featuremappings
+from aggregated_models.baseaggmodel import BaseAggModel
+from aggregated_models import Optimizers
+from aggregated_models.mrf_helpers import ComputeRWpred, fastGibbsSample, fastGibbsSampleFromPY0
 
 
 class ConstantMRFParameters:

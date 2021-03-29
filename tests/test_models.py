@@ -1,17 +1,17 @@
 from pytest import approx, fixture
 # helpers to compute metrics
-from agg_models.validation import MetricsComputer
+from aggregated_models.validation import MetricsComputer
 
 # baselines
-from agg_models.basicmodels import LogisticModel, NaiveBayesModel, LogisticModelWithCF
-from agg_models.aggLogistic import AggLogistic
+from aggregated_models.basicmodels import LogisticModel, NaiveBayesModel, LogisticModelWithCF
+from aggregated_models.aggLogistic import AggLogistic
 
 # code to prepare the aggregated dataset
-from agg_models.featuremappings import AggDataset
+from aggregated_models.featuremappings import AggDataset
 
 ## Most relevant code is there:
-from agg_models.agg_mrf_model import AggMRFModel, fastGibbsSample, fastGibbsSampleFromPY0
-import agg_models.agg_mrf_model
+from aggregated_models.agg_mrf_model import AggMRFModel, fastGibbsSample, fastGibbsSampleFromPY0
+import aggregated_models.agg_mrf_model
 import pandas as pd
 
 

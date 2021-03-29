@@ -3,7 +3,7 @@ import numpy as np
 import random
 import bisect
 from collections import Counter
-from agg_models.featuremappings import (
+from aggregated_models.featuremappings import (
     CrossFeaturesMapping,
     FeatureMapping,
     DataProjection,

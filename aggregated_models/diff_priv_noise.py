@@ -1,5 +1,5 @@
 import numpy as np
-from agg_models import noiseDistributions
+from aggregated_models import noiseDistributions
 
 
 class GaussianMechanism:

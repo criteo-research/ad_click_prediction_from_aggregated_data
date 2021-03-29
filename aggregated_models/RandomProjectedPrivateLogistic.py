@@ -10,8 +10,8 @@ import random
 from sklearn.linear_model import LogisticRegression
 from sklearn.feature_extraction import FeatureHasher
 
-from agg_models.featuremappings import FeaturesSet
-from agg_models.basicmodels import Hasher
+from aggregated_models.featuremappings import FeaturesSet
+from aggregated_models.basicmodels import Hasher
 
 
 class RPPrivateLogistic:

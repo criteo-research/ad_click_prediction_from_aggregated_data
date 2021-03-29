@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from agg_models.aggLogistic import AggLogistic
+from aggregated_models.aggLogistic import AggLogistic
 
 # model averaging several submodels
 class EnsembleModel:

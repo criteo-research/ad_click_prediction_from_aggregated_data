@@ -1,4 +1,4 @@
-from agg_models.MyOptimizerUtils import LineSearchWithOnlyGrad, LbfgsInvHessProduct
+from aggregated_models.MyOptimizerUtils import LineSearchWithOnlyGrad, LbfgsInvHessProduct
 import numpy as np
 
 

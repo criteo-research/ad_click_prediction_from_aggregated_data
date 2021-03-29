@@ -23,6 +23,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+data/
+notebooks/*.parquet
 MANIFEST
 
 # PyInstaller
@@ -112,3 +114,5 @@ adapt_template.sh
 # Ignore backup files
 *~
 
+.metals/metals.h2.db
+.vscode/settings.json

@@ -4,7 +4,7 @@ import random
 from joblib import Parallel, delayed
 from numba import jit
 
-from agg_models import featuremappings
+from aggregated_models import featuremappings
 
 
 @jit(nopython=True)

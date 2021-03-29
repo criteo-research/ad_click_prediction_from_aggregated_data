@@ -1,13 +1,13 @@
 import pandas as pd
 import numpy as np
-from agg_models.featuremappings import (
+from aggregated_models.featuremappings import (
     CrossFeaturesMapping,
     FeatureMapping,
     DataProjection,
 )
-from agg_models.SampleSet import SampleSet
-from agg_models import featuremappings
-from agg_models import Optimizers
+from aggregated_models.SampleSet import SampleSet
+from aggregated_models import featuremappings
+from aggregated_models import Optimizers
 
 
 class WeightsSet:
