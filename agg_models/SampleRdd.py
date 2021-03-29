@@ -9,7 +9,6 @@ from agg_models.featuremappings import (
     DataProjection,
 )
 from agg_models.mrf_helpers import fastGibbsSampleFromPY0
-import traceback
 
 
 MAXMODALITIES = 1e7
@@ -64,12 +63,12 @@ class SampleRdd:
         rdd_sample_weights_expdotproducts = self._compute_weights(
             model, rdd_sample_expdotproducts
         )
-        rdd_sample_weights_enoclick_eclick_zi = self._compute_enoclick_eclick_zi(model, rdd_sample_weights_expdotproducts)
-        self._compute_prediction(model, rdd_sample_weights_enoclick_eclick_zi)
+        rdd_sample_enoclick_eclick_zi = self._compute_enoclick_eclick_zi(model, rdd_sample_weights_expdotproducts)
+        self._compute_prediction(model, rdd_sample_enoclick_eclick_zi)
 
-    def _compute_prediction(self, model, rdd_sample_weights_enoclick_eclick_zi):
+    def _compute_prediction(self, model, rdd_sample_enoclick_eclick_zi):
         #  print("_compute_prediction")
-        pdisplays, z_on_z0 = self._compute_prediction_reduce(model, rdd_sample_weights_enoclick_eclick_zi)
+        pdisplays, z_on_z0 = self._compute_prediction_reduce(model, rdd_sample_enoclick_eclick_zi)
         # Compute z0_on_z : 1 / np.mean(z_i) = np.sum(z_zi) / nbSamples
         predict = pdisplays * self.Size / z_on_z0
         self.prediction = predict
@@ -176,11 +175,11 @@ class SampleRdd:
             if constantMRFParameters.value.sampleFromPY0:  # correct importance weigthing formula
                 eclick *= 1 + np.exp(constantMRFParameters.value.lambdaIntercept)
                 enoclick *= 1 + np.exp(constantMRFParameters.value.lambdaIntercept)
-            return x, weights, enoclick, eclick, z_i
+            return x, enoclick, eclick, z_i
 
         return rdd_samples_weights_expdotproducts.map(_computePDisplays)
 
-    def _compute_prediction_reduce(self, model, x_w_enoclick_eclick):
+    def _compute_prediction_reduce(self, model, x_enoclick_eclick):
         """
         Input: RDD containing tuple x,w,enoclick,eclick,z_i
             x: matrix (K,F) of K samples with F features
@@ -195,9 +194,9 @@ class SampleRdd:
 
         constantMRFParameters = model.constantMRFParameters
 
-        def computePredictions(samples_w_enoclick_eclick_zi):
+        def computePredictions(samples_enoclick_eclick_zi):
             p = np.zeros(constantMRFParameters.value.nbParameters)
-            x, w, enoclick, eclick, z_i = samples_w_enoclick_eclick_zi
+            x, enoclick, eclick, z_i = samples_enoclick_eclick_zi
             t_x = x.transpose()
             for w in constantMRFParameters.value.displayWeights.values():
                 p[w.indices] = w.feature.Project_(t_x, enoclick + eclick)  # Correct for grads
@@ -205,6 +204,6 @@ class SampleRdd:
                 p[w.indices] = w.feature.Project_(t_x, eclick)
             return p, z_i
 
-        return x_w_enoclick_eclick.map(computePredictions).treeReduce(
+        return x_enoclick_eclick.map(computePredictions).treeReduce(
             lambda p_z, p_z1: (p_z[0] + p_z1[0], p_z[1] + p_z1[1])
         )

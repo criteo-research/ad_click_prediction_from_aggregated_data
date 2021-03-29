@@ -20,8 +20,7 @@ class SampleSet:
         decollapseGibbs=False,
         sampleFromPY0=False,
         maxNbRowsperGibbsUpdate=50,
-        data=None,
-        weights=None,
+        data=None
     ):
         self.projections = projections
         self.decollapseGibbs = decollapseGibbs
@@ -39,12 +38,9 @@ class SampleSet:
 
         self.Size = len(self.data[0])
 
-        if weights is not None:
-            self.weights = weights
-        else:
-            self.probaIndep = self.computeProbaIndep()
-            self.probaSamples = self.probaIndep
-            self._setweights()
+        self.probaIndep = self.computeProbaIndep()
+        self.probaSamples = self.probaIndep
+        self._setweights()
         self.expmu = None
         self.explambda = None
         self.prediction = None
