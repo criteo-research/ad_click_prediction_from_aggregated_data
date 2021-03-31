@@ -116,10 +116,8 @@ class SampleRdd:
         return self.rddSamples.map(myfun_sampling_from_p_y0)
 
     def UpdateSampleWeights(self, model):
-        rdd_sample_expdotproducts = self._compute_rdd_expdotproducts(model)
-        rdd_sample_weights_expdotproducts = self._compute_weights(model, rdd_sample_expdotproducts)
-        rdd_sample_enoclick_eclick_zi = self._compute_enoclick_eclick_zi(model, rdd_sample_weights_expdotproducts)
-        self._compute_prediction(model, rdd_sample_enoclick_eclick_zi)
+        # Invalidating prediction because samples have changed
+        self.prediction = None
 
     def _compute_prediction(self, model, rdd_sample_enoclick_eclick_zi):
         rdd_one_hot_index = self._convert_to_one_hot_index(model, rdd_sample_enoclick_eclick_zi)
@@ -130,20 +128,22 @@ class SampleRdd:
         predict = np.zeros(model.parameters.size)
         indices = projections[:, 0].astype(int)
         predict[indices] = (projections[:, 1]) * self.Size / z_on_z0
-        self.prediction = predict
+        return predict
 
     def PredictInternal(self, model):
         # here we only need to broadcast model parameters and collect all broadcast
         if self.variableMRFParameters is not None:
             self.broadcast_history.append(self.variableMRFParameters)
         self.variableMRFParameters = self.sparkSession.sparkContext.broadcast(VariableMRFParameters(model.parameters))
-        rdd_sample_expdotproducts = self._compute_rdd_expdotproducts(model)
-        rdd_sample_weights_expdotproducts = self._compute_weights(model, rdd_sample_expdotproducts)
-        rdd_sample_enoclick_eclick_zi = self._compute_enoclick_eclick_zi(model, rdd_sample_weights_expdotproducts)
-        self._compute_prediction(model, rdd_sample_enoclick_eclick_zi)
+        # Invalidating prediction because parameters have changed
+        self.prediction = None
 
     def GetPrediction(self, model):
-        # self._compute_prediction(model)
+        if self.prediction is None:
+            rdd_sample_expdotproducts = self._compute_rdd_expdotproducts(model)
+            rdd_sample_weights_expdotproducts = self._compute_weights(model, rdd_sample_expdotproducts)
+            rdd_sample_enoclick_eclick_zi = self._compute_enoclick_eclick_zi(model, rdd_sample_weights_expdotproducts)
+            self.prediction = self._compute_prediction(model, rdd_sample_enoclick_eclick_zi)
         return self.prediction
 
     def _compute_rdd_expdotproducts(self, model):
