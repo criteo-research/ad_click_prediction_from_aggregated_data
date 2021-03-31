@@ -1,4 +1,7 @@
-from aggregated_models.MyOptimizerUtils import LineSearchWithOnlyGrad, LbfgsInvHessProduct
+from aggregated_models.MyOptimizerUtils import (
+    LineSearchWithOnlyGrad,
+    LbfgsInvHessProduct,
+)
 import numpy as np
 
 
@@ -35,7 +38,8 @@ def simpleGradientStep(
     alpha=0.1,
     endIterCallback=None,
 ):
-    for _ in range(0, nbiter):
+    for i in range(0, nbiter):
+        print(f"simpleGradientStep iter={i}     ", end="\r")
         g = model.computeGradient()
         d = -g * model.computeInvHessianDiag()
         x = model.parameters
