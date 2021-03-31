@@ -14,11 +14,47 @@ from aggregated_models.mrf_helpers import gibbsOneSampleFromPY0
 MAXMODALITIES = 1e7
 
 
+class VariableMRFParameters:
+    def __init__(self, parameters):
+        self.parameters = parameters
+
+
+class ConstantMRFParameters:
+    def __init__(
+        self,
+        nbSamples,
+        nbParameters,
+        sampleFromPY0,
+        explosedDisplayWeights,
+        displayWeights,
+        clickWeights,
+        modalitiesByVarId,
+        muIntercept,
+        lambdaIntercept,
+    ):
+        self.nbSamples = nbSamples
+        self.nbParameters = nbParameters
+        self.sampleFromPY0 = sampleFromPY0
+        self.explosedDisplayWeights = explosedDisplayWeights
+        self.displayWeights = displayWeights
+        self.clickWeights = clickWeights
+        self.modalitiesByVarId = modalitiesByVarId
+        self.muIntercept = muIntercept
+        self.lambdaIntercept = lambdaIntercept
+        if self.sampleFromPY0:
+            self.norm = np.exp(muIntercept)
+        else:
+            self.norm = np.exp(muIntercept) * (1 + np.exp(lambdaIntercept))
+        self.enoclick = (1 + np.exp(self.lambdaIntercept)) * np.exp(self.muIntercept) / self.nbSamples
+
+
 # set of samples of 'x' used internally by AggMRFModel
 class SampleRdd:
     def __init__(
         self,
         projections,
+        model,
+        sparkSession,
         nbSamples=None,
         decollapseGibbs=False,
         sampleFromPY0=False,
@@ -30,9 +66,26 @@ class SampleRdd:
         self.features = [p.feature for p in projections]
         self.featurenames = [f.Name for f in self.features]
         self.Size = nbSamples
-        self.rddSamples = data
         self.allcrossmods = False
         self.prediction = None
+        self.sparkSession = sparkSession
+        self.broadcast_history = list()
+        self.rddSamples = sparkSession.sparkContext.parallelize(data)
+        self.variableMRFParameters = sparkSession.sparkContext.broadcast(VariableMRFParameters(model.parameters))
+        (exportedDisplayWeights, _, modalitiesByVarId, _) = model.exportWeightsAll()
+        self.constantMRFParameters = sparkSession.sparkContext.broadcast(
+            ConstantMRFParameters(
+                self.Size,
+                model.parameters.size,
+                self.sampleFromPY0,
+                exportedDisplayWeights,
+                model.displayWeights,
+                model.clickWeights,
+                modalitiesByVarId,
+                model.muIntercept,
+                model.lambdaIntercept,
+            )
+        )
 
     def get_rows(self):
         data = self.rddSamples.collect()
@@ -42,10 +95,13 @@ class SampleRdd:
         self.rddSamples = self._updateSamplesWithGibbsRdd(model)
         self.rddSamples.checkpoint()
         self.rddSamples.count()
+        for k in self.broadcast_history:
+            k.destroy()
+            self.broadcast_history = list()
 
     def _updateSamplesWithGibbsRdd(self, model):
-        constantMRFParameters = model.constantMRFParameters
-        variableMRFParameters = model.variableMRFParameters
+        constantMRFParameters = self.constantMRFParameters
+        variableMRFParameters = self.variableMRFParameters
 
         def myfun_sampling_from_p_y0(sample):
             new_sample = gibbsOneSampleFromPY0(
@@ -77,6 +133,10 @@ class SampleRdd:
         self.prediction = predict
 
     def PredictInternal(self, model):
+        # here we only need to broadcast model parameters and collect all broadcast
+        if self.variableMRFParameters is not None:
+            self.broadcast_history.append(self.variableMRFParameters)
+        self.variableMRFParameters = self.sparkSession.sparkContext.broadcast(VariableMRFParameters(model.parameters))
         rdd_sample_expdotproducts = self._compute_rdd_expdotproducts(model)
         rdd_sample_weights_expdotproducts = self._compute_weights(model, rdd_sample_expdotproducts)
         rdd_sample_enoclick_eclick_zi = self._compute_enoclick_eclick_zi(model, rdd_sample_weights_expdotproducts)
@@ -96,8 +156,8 @@ class SampleRdd:
             expmu: exp of dotproducts for display parameters
             explambda: expo of dotproducts for clicks parameters
         """
-        constantMRFParameters = model.constantMRFParameters
-        variableMRFParameters = model.variableMRFParameters
+        constantMRFParameters = self.constantMRFParameters
+        variableMRFParameters = self.variableMRFParameters
 
         def expdotproducts(x):
             mus = 0
@@ -126,7 +186,7 @@ class SampleRdd:
             expmu: exp of dotproducts for display parameters
             explambda: exp of dotproducts for clicks parameters
         """
-        constantMRFParameters = model.constantMRFParameters
+        constantMRFParameters = self.constantMRFParameters
 
         def _computeWeightFromPY0(x_exp_mu_lambda):
             x, expmu, explambda = x_exp_mu_lambda
@@ -158,7 +218,7 @@ class SampleRdd:
             zi: Term used to compute P(Y)
         """
         # x, expmu, explambda
-        constantMRFParameters = model.constantMRFParameters
+        constantMRFParameters = self.constantMRFParameters
 
         def _computePDisplays(x_weight_mu_lambda):
             x, weights, expmu, explambda = x_weight_mu_lambda
@@ -186,7 +246,7 @@ class SampleRdd:
             zi: Normalisation term used to compute final probability
         """
 
-        constantMRFParameters = model.constantMRFParameters
+        constantMRFParameters = self.constantMRFParameters
 
         def convertForFlatMap(x_enoclick_eclick_zi):
             x, enoclick, eclick, zi = x_enoclick_eclick_zi

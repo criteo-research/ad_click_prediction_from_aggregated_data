@@ -18,40 +18,6 @@ from aggregated_models import Optimizers
 from aggregated_models.mrf_helpers import ComputeRWpred, fastGibbsSample, fastGibbsSampleFromPY0
 
 
-class ConstantMRFParameters:
-    def __init__(
-        self,
-        nbSamples,
-        nbParameters,
-        sampleFromPY0,
-        explosedDisplayWeights,
-        displayWeights,
-        clickWeights,
-        modalitiesByVarId,
-        muIntercept,
-        lambdaIntercept,
-    ):
-        self.nbSamples = nbSamples
-        self.nbParameters = nbParameters
-        self.sampleFromPY0 = sampleFromPY0
-        self.explosedDisplayWeights = explosedDisplayWeights
-        self.displayWeights = displayWeights
-        self.clickWeights = clickWeights
-        self.modalitiesByVarId = modalitiesByVarId
-        self.muIntercept = muIntercept
-        self.lambdaIntercept = lambdaIntercept
-        if self.sampleFromPY0:
-            self.norm = np.exp(muIntercept)
-        else:
-            self.norm = np.exp(muIntercept) * (1 + np.exp(lambdaIntercept))
-        self.enoclick = (1 + np.exp(self.lambdaIntercept)) * np.exp(self.muIntercept) / self.nbSamples
-
-
-class VariableMRFParameters:
-    def __init__(self, parameters):
-        self.parameters = parameters
-
-
 class AggMRFModel(BaseAggModel):
     def __init__(
         self,
@@ -94,7 +60,6 @@ class AggMRFModel(BaseAggModel):
         if regulL2Click is None:
             self.regulL2Click = regulL2
         self.lastPredict = None
-        self.garbage = list()
         self.sparkSession = sparkSession
         # Preparing weights, parameters, samples ...
         self.prepareFit()
@@ -143,22 +108,6 @@ class AggMRFModel(BaseAggModel):
             proj = self.displayProjections[var]
             self.parameters[weights.indices] = np.log(np.maximum(proj.Data, self.priorDisplays)) - logNbDisplay
             # init to log( P(v | C=0 ) instead ???
-        (exportedDisplayWeights, exportedClickWeights, modalitiesByVarId, parameters) = self.exportWeightsAll()
-        if self.sparkSession is not None:
-            self.constantMRFParameters = self.sparkSession.sparkContext.broadcast(
-                ConstantMRFParameters(
-                    self.nbSamples,
-                    self.parameters.size,
-                    self.sampleFromPY0,
-                    exportedDisplayWeights,
-                    self.displayWeights,
-                    self.clickWeights,
-                    modalitiesByVarId,
-                    self.muIntercept,
-                    self.lambdaIntercept,
-                )
-            )
-            self.variableMRFParameters = self.sparkSession.sparkContext.broadcast(VariableMRFParameters(parameters))
 
     def prepareFit(self):
         self.setProjections()  # building all weights and projections now
@@ -189,13 +138,6 @@ class AggMRFModel(BaseAggModel):
 
     def setparameters(self, x):
         self.parameters = x
-
-        if self.sparkSession is not None and self.variableMRFParameters is not None:
-            self.garbage.append(self.variableMRFParameters)
-            self.variableMRFParameters = self.sparkSession.sparkContext.broadcast(
-                VariableMRFParameters(self.parameters)
-            )
-
         self.update()
 
     def predictDFinternal(self, df):
@@ -221,10 +163,6 @@ class AggMRFModel(BaseAggModel):
         if not samples.allcrossmods:
             # Not applying Gibbs if full samples was generated
             samples.UpdateSampleWithGibbs(self)
-            if self.sparkSession is not None:
-                for k in self.garbage:
-                    k.destroy()
-                self.garbage = list()
         samples.UpdateSampleWeights(self)
 
     def getPredictionsVector(self, samples):
@@ -346,10 +284,12 @@ class AggMRFModel(BaseAggModel):
     def buildSamplesRddFromSampleSet(self, samples):
         return SampleRdd(
             samples.projections,
+            self,
+            self.sparkSession,
             samples.Size,
             samples.decollapseGibbs,
             samples.sampleFromPY0,
-            self.sparkSession.sparkContext.parallelize(samples.get_rows()),
+            samples.get_rows(),
         )
 
     def buildSamplesSetFromSampleRdd(self, samples):
