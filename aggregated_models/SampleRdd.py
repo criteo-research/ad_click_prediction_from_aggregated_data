@@ -34,6 +34,10 @@ class SampleRdd:
         self.allcrossmods = False
         self.prediction = None
 
+    def get_rows(self):
+        data = self.rddSamples.collect()
+        return np.vstack([d for d in data])
+
     def UpdateSampleWithGibbs(self, model):
         self.rddSamples = self._updateSamplesWithGibbsRdd(model)
         self.rddSamples.checkpoint()

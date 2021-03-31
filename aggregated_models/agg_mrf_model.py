@@ -344,25 +344,22 @@ class AggMRFModel(BaseAggModel):
         self.updateSamplesWithGibbs(self.samples)
 
     def buildSamplesRddFromSampleSet(self, samples):
-        rows = samples.data.transpose()
         return SampleRdd(
-            [self.displayProjections[var] for var in self.features],
-            self.nbSamples,
-            self.decollapseGibbs,
-            self.sampleFromPY0,
-            self.sparkSession.sparkContext.parallelize(rows),
+            samples.projections,
+            samples.Size,
+            samples.decollapseGibbs,
+            samples.sampleFromPY0,
+            self.sparkSession.sparkContext.parallelize(samples.get_rows()),
         )
 
     def buildSamplesSetFromSampleRdd(self, samples):
-        data = samples.rddSamples.collect()
-        data = np.vstack([d for d in data])
         return SampleSet(
-            [self.displayProjections[var] for var in self.features],
-            self.nbSamples,
-            self.decollapseGibbs,
-            self.sampleFromPY0,
+            samples.projections,
+            samples.Size,
+            samples.decollapseGibbs,
+            samples.sampleFromPY0,
             self.maxNbRowsperGibbsUpdate,
-            data.transpose(),
+            samples.get_rows(),
         )
 
     def maxprobaratio(self, samples):
@@ -456,7 +453,7 @@ class AggMRFModel(BaseAggModel):
         ) = self.exportWeightsAll()
         start = 0
 
-        rows = samples.data.transpose()
+        rows = samples.get_rows()
 
         starts = np.arange(0, len(rows), maxNbRows)
         slices = [(rows[start : start + maxNbRows], samples.y[start : start + maxNbRows]) for start in starts]

@@ -21,7 +21,7 @@ class SampleSet:
         decollapseGibbs=False,
         sampleFromPY0=False,
         maxNbRowsperGibbsUpdate=50,
-        data=None,
+        rows=None,
     ):
         self.projections = projections
         self.decollapseGibbs = decollapseGibbs
@@ -29,15 +29,15 @@ class SampleSet:
         self.features = [p.feature for p in projections]
         self.featurenames = [f.Name for f in self.features]
         self.allcrossmods = False
-        if data is not None:
-            self.data = data
+        if rows is not None:
+            self.set_data_from_rows(rows)
         elif nbSamples is None:
             df = self.buildCrossmodsSample()
-            self.data = df[self.featurenames].values.transpose()
+            self.columns = df[self.featurenames].values.transpose()
         else:
-            self.data = self.sampleIndepedent(nbSamples)
+            self.columns = self.sampleIndepedent(nbSamples)
 
-        self.Size = len(self.data[0])
+        self.Size = len(self.columns[0])
 
         self.probaIndep = self.computeProbaIndep()
         self.probaSamples = self.probaIndep
@@ -45,6 +45,12 @@ class SampleSet:
         self.expmu = None
         self.explambda = None
         self.prediction = None
+
+    def set_data_from_rows(self, rows):
+        self.columns = rows.transpose()
+
+    def get_rows(self):
+        return self.columns.transpose()
 
     def _setweights(self):
         if self.allcrossmods:
@@ -94,16 +100,16 @@ class SampleSet:
     def _compute_prediction(self, model):
         predict = model.parameters * 0
         for w in model.displayWeights.values():
-            predict[w.indices] = w.feature.Project_(self.data, self.Eclick + self.Enoclick)  # Correct for grads
+            predict[w.indices] = w.feature.Project_(self.columns, self.Eclick + self.Enoclick)  # Correct for grads
         for w in model.clickWeights.values():
-            predict[w.indices] = w.feature.Project_(self.data, self.Eclick)
+            predict[w.indices] = w.feature.Project_(self.columns, self.Eclick)
         self.prediction = predict
 
     def GetPrediction(self, model):
         return self.prediction
 
     def UpdateSampleWithGibbs(self, model):
-        self.data = model.RunParallelGibbsSampler(self, maxNbRows=model.maxNbRowsperGibbsUpdate)
+        self.columns = model.RunParallelGibbsSampler(self, maxNbRows=model.maxNbRowsperGibbsUpdate)
 
     def UpdateSampleWeights(self, model):
         self._computedotprods(model)
@@ -113,8 +119,8 @@ class SampleSet:
         self._compute_prediction(model)
 
     def _computedotprods(self, model):
-        lambdas = model.dotproducts(model.clickWeights, self.data) + model.lambdaIntercept
-        mus = model.dotproducts(model.displayWeights, self.data) + model.muIntercept
+        lambdas = model.dotproducts(model.clickWeights, self.columns) + model.lambdaIntercept
+        mus = model.dotproducts(model.displayWeights, self.columns) + model.muIntercept
         expmu = np.exp(mus)
         explambda = np.exp(lambdas) * expmu
         self.expmu = expmu
@@ -126,7 +132,7 @@ class SampleSet:
         self.y = 1 * (r < pclick)
 
     def Df(self):
-        return pd.DataFrame(self.data, self.featurenames).transpose()
+        return pd.DataFrame(self.columns, self.featurenames).transpose()
 
     def countCrossmods(self):
         nbCrossModalities = np.prod([f.Size for f in self.features])
