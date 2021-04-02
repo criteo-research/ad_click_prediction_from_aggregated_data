@@ -1,10 +1,9 @@
 import numpy as np
 from aggregated_models.featuremappings import (
     CrossFeaturesMapping,
-    FeatureMapping,
-    DataProjection,
+    SingleFeatureMapping,
 )
-from aggregated_models import featuremappings
+from aggregated_models import featureprojections
 from aggregated_models import Optimizers
 from aggregated_models.baseaggmodel import BaseAggModel
 
@@ -22,7 +21,7 @@ class AggLogistic(BaseAggModel):
     def __init__(self, aggdata, features, clicksCfs="*&*", regulL2=1.0):
         super().__init__(aggdata, features)
         self.regulL2 = regulL2
-        self.clicksCfs = featuremappings.parseCFNames(self.features, clicksCfs)
+        self.clicksCfs = featureprojections.parseCFNames(self.features, clicksCfs)
         self.setProjections()  # building all weights and projections now
         self.setWeights()
         self.initParameters()

@@ -5,8 +5,7 @@ import bisect
 from collections import Counter
 from aggregated_models.featuremappings import (
     CrossFeaturesMapping,
-    FeatureMapping,
-    DataProjection,
+    SingleFeatureMapping,
 )
 
 MAXMODALITIES = 1e7

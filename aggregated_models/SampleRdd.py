@@ -7,8 +7,7 @@ import operator
 from collections import Counter
 from aggregated_models.featuremappings import (
     CrossFeaturesMapping,
-    FeatureMapping,
-    DataProjection,
+    SingleFeatureMapping,
 )
 from aggregated_models.mrf_helpers import gibbsOneSampleFromPY0
 

@@ -2,16 +2,17 @@ from typing import Dict, List, Optional
 import numpy as np
 from pyspark.sql import DataFrame
 import pyspark.sql.functions as F
-from aggregated_models.featuremappings import (
-    IMapping,
+from aggregated_models.featuremappings import IMapping
+from aggregated_models.featureprojections import (
     DataProjection,
     parseCF,
-    ICrossFeaturesMapping,
-    IFeatureMapping,
+    ICrossFeaturesProjection,
+    ISingleFeatureProjection,
+    IProjection,
 )
 
 
-class FeatureMappingSpark(IFeatureMapping):
+class SingleFeatureProjectionSpark(ISingleFeatureProjection):
     """class representing one feature and its set of modalities."""
 
     def __init__(self, name: str, df: DataFrame, fid: int = 0, maxNbModalities: Optional[int] = None):
@@ -63,13 +64,13 @@ class FeatureMappingSpark(IFeatureMapping):
         return projection
 
 
-class CrossFeaturesMappingSpark(ICrossFeaturesMapping):
+class CrossFeaturesProjectionSpark(ICrossFeaturesProjection):
     """a crossfeature between two single features."""
 
     def __init__(
         self,
-        single_feature_1: IFeatureMapping,
-        single_feature_2: IFeatureMapping,
+        single_feature_1: ISingleFeatureProjection,
+        single_feature_2: ISingleFeatureProjection,
         maxNbModalities: int = None,
     ):
         super().__init__(single_feature_1, single_feature_2, maxNbModalities)
@@ -86,78 +87,3 @@ class CrossFeaturesMappingSpark(ICrossFeaturesMapping):
         projection = np.zeros(self.Size)
         projection[aggregations[self.Name].values] = aggregations[sum_on].values
         return projection
-
-
-class FeaturesSetSpark:
-    mappings: Dict[str, IMapping]
-    features: List[str]
-    crossfeatures: List[List[str]]
-
-    def __init__(
-        self, features: List[str], crossfeaturesStr: str, df: DataFrame, maxNbModalities: Optional[int] = None
-    ):
-        self.features = features
-        self.crossfeatures = parseCF(features, crossfeaturesStr)
-        self.maxNbModalities = maxNbModalities
-
-        allfeatures = [f for cf in self.crossfeatures for f in cf]
-        if any([f not in features for f in allfeatures]):
-            raise Exception("Error: Some cross feature not declared in features list ")
-        self.buildFeaturesMapping(df)
-
-    def buildFeaturesMapping(self, df):
-        mappings = {}
-        fid = 0
-        for var in self.features:
-            mappings[var] = FeatureMappingSpark(var, df, fid, self.maxNbModalities)
-            fid += 1
-
-        for cf in self.crossfeatures:
-            if len(cf) != 2:
-                raise Exception("cf of len !=2  not supported yet")
-            mapping = CrossFeaturesMappingSpark(mappings[cf[0]], mappings[cf[1]], self.maxNbModalities)
-            mappings[mapping.Name] = mapping
-        self.mappings = mappings
-
-    def getMapping(self, var: str):
-        return self.mappings[var]
-
-    def transformDf(self, df, alsoCrossfeatures=False):
-        for var in self.mappings.values():
-            if alsoCrossfeatures or type(var) is FeatureMappingSpark:
-                df = var.Map(df)
-        return df
-
-    def Project(self, train: DataFrame, on: str) -> Dict[str, DataProjection]:
-        train = self.transformDf(train)
-        projections = {}
-        for var in self.mappings:
-            projections[var] = DataProjection(self.mappings[var], train, on)
-        return projections
-
-    def __repr__(self):
-        return ",".join(f.Name for f in self.mappings.values())
-
-
-class AggDatasetSpark:
-    _DISPLAY_COL_NAME = "display"
-
-    def __init__(
-        self,
-        features,
-        train: DataFrame,
-        label="click",
-        maxNbModalities=None,
-    ):
-        self.label = label
-        self.featuresSet = FeaturesSetSpark(features, "*&*", train, maxNbModalities)
-        self.features = self.featuresSet.features
-        self.aggClicks = self.featuresSet.Project(train, label)
-        self.aggDisplays = self.featuresSet.Project(
-            train.withColumn(self._DISPLAY_COL_NAME, F.lit(1)), self._DISPLAY_COL_NAME
-        )
-        self.Nbclicks = self.aggClicks[features[0]].Data.sum()
-        self.Nbdisplays = self.aggDisplays[features[0]].Data.sum()
-
-    def __repr__(self):
-        return f"Label:{self.label};featuresSet:{self.featuresSet}"

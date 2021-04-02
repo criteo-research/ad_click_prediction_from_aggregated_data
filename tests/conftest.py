@@ -3,7 +3,7 @@ import pandas as pd
 import getpass
 from thx.hadoop import spark_config_builder
 from aggregated_models.validation import MetricsComputer
-from aggregated_models.featuremappings import AggDataset
+from aggregated_models.aggdataset import AggDataset
 import uuid
 
 
@@ -35,7 +35,12 @@ class ModelTestData:
         self.epsilon = None  # Set to None to get no noise.
         self.delta = None
         self.aggdata = AggDataset(
-            self.features, "*&*", self.train, self.label, self.epsilon, self.delta, maxNbModalities=10000
+            dataframe=self.train,
+            features=self.features,
+            label=self.label,
+            epsilon0=self.epsilon,
+            delta=self.delta,
+            maxNbModalities=10000,
         )
 
 

@@ -10,7 +10,7 @@ import random
 from sklearn.linear_model import LogisticRegression
 from sklearn.feature_extraction import FeatureHasher
 
-from aggregated_models.featuremappings import FeaturesSet
+from aggregated_models.aggdataset import FeaturesSet
 from aggregated_models.basicmodels import Hasher
 
 

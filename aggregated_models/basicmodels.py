@@ -2,7 +2,7 @@ import warnings
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.feature_extraction import FeatureHasher
-from aggregated_models.featuremappings import FeaturesSet
+from aggregated_models.aggdataset import FeaturesSet
 
 
 # Wrapper around sklearn.feature_extraction.FeatureHasher

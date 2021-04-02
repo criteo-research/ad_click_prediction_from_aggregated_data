@@ -2,8 +2,7 @@ import pandas as pd
 import numpy as np
 from aggregated_models.featuremappings import (
     CrossFeaturesMapping,
-    FeatureMapping,
-    DataProjection,
+    SingleFeatureMapping,
 )
 from aggregated_models.SampleSet import SampleSet
 from aggregated_models import featuremappings
@@ -12,11 +11,11 @@ from aggregated_models import Optimizers
 
 class WeightsSet:
     """Map a feature to a subarray in an array of parameters. Usefull to build linear models.
-    feature: a FeatureMapping or CrossFeaturesMapping
+    feature: a SingleFeatureMapping or CrossFeaturesMapping
     offset: first index used for this feature. subarray will be [offset:offset+feature.Size]
     """
 
-    def __init__(self, feature, offset):
+    def __init__(self, feature: SingleFeatureMapping, offset):
         self.feature = feature
         self.offset = offset
         self.indices = np.arange(self.offset, self.offset + self.feature.Size)

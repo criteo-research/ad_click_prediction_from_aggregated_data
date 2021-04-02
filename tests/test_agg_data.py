@@ -1,26 +1,25 @@
 from pytest import fixture
-
+import pandas as pd
 import numpy as np
-from pyspark.sql.session import SparkSession
 
 from aggregated_models.aggdataset import AggDataset
 from aggregated_models.agg_mrf_model import AggMRFModel
 
 
 @fixture(scope="module")
-def agg_data(spark_session: SparkSession) -> AggDataset:
+def agg_data() -> AggDataset:
     features = ["cat1", "cat2", "cat3"]
     label_col = "label"
-    train = spark_session.createDataFrame(
+    train = pd.DataFrame(
         data=[
             ["hello", "world", "!", 1],
             ["i", "love", "data", 0],
             ["hello", "world", "!", 1],
             ["i", "am", "!", 0],
         ],
-        schema=features + [label_col],
+        columns=features + [label_col],
     )
-    return AggDataset(features=features, dataframe=train, label=label_col, maxNbModalities=None)
+    return AggDataset(train, features=features, label=label_col, maxNbModalities=None)
 
 
 def test_agg_data_gives_correct_aggregations(agg_data: AggDataset):

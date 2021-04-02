@@ -5,14 +5,10 @@ import random
 from collections import Counter
 from joblib import Parallel, delayed
 
-from aggregated_models.featuremappings import (
-    CrossFeaturesMapping,
-    FeatureMapping,
-    DataProjection,
-)
+from aggregated_models.featuremappings import CrossFeaturesMapping
 from aggregated_models.SampleSet import SampleSet
 from aggregated_models.SampleRdd import SampleRdd
-from aggregated_models import featuremappings
+from aggregated_models import featureprojections
 from aggregated_models.baseaggmodel import BaseAggModel
 from aggregated_models import Optimizers
 from aggregated_models.mrf_helpers import ComputeRWpred, fastGibbsSample, fastGibbsSampleFromPY0
@@ -43,8 +39,8 @@ class AggMRFModel(BaseAggModel):
 
         self.regulL2 = regulL2
 
-        self.displaysCfs = featuremappings.parseCFNames(self.features, displaysCfs)
-        self.clicksCfs = featuremappings.parseCFNames(self.features, clicksCfs)
+        self.displaysCfs = featureprojections.parseCFNames(self.features, displaysCfs)
+        self.clicksCfs = featureprojections.parseCFNames(self.features, clicksCfs)
 
         self.allFeatures = self.features
         self.activeFeatures = activeFeatures if activeFeatures is not None else features
@@ -66,9 +62,9 @@ class AggMRFModel(BaseAggModel):
 
     def setProjections(self):
         clickFeatures = self.features + self.clicksCfs
-        self.clickProjections = {var: self.aggdata.aggClicks[var] for var in clickFeatures}
+        self.clickProjections = {feature: self.aggdata.aggClicks[feature] for feature in clickFeatures}
         displayFeatures = self.features + self.displaysCfs
-        self.displayProjections = {var: self.aggdata.aggDisplays[var] for var in displayFeatures}
+        self.displayProjections = {feature: self.aggdata.aggDisplays[feature] for feature in displayFeatures}
         self.allClickProjections = self.clickProjections.copy()
         self.allDisplayProjections = self.displayProjections.copy()
 
@@ -83,7 +79,7 @@ class AggMRFModel(BaseAggModel):
 
     def buildSamples(self):
         samples = SampleSet(
-            [self.displayProjections[var] for var in self.features],
+            [self.displayProjections[feature] for feature in self.features],
             self.nbSamples,
             self.decollapseGibbs,
             self.sampleFromPY0,
@@ -103,9 +99,9 @@ class AggMRFModel(BaseAggModel):
         self.muIntercept = np.log(nbdisplays - nbclicks)
         self.lambdaIntercept = np.log(nbclicks) - self.muIntercept
         logNbDisplay = np.log(nbdisplays)
-        for var in self.activeFeatures:
-            weights = self.displayWeights[var]
-            proj = self.displayProjections[var]
+        for feature in self.activeFeatures:
+            weights = self.displayWeights[feature]
+            proj = self.displayProjections[feature]
             self.parameters[weights.indices] = np.log(np.maximum(proj.Data, self.priorDisplays)) - logNbDisplay
             # init to log( P(v | C=0 ) instead ???
 
@@ -322,24 +318,24 @@ class AggMRFModel(BaseAggModel):
     # export data useful to compute dotproduct
     def exportWeights(self, weights):
         weightsByVar = {}
-        for var in self.features:
-            weightsByVar[var] = [x for x in weights.values() if var in x.feature.Name]
+        for feature in self.features:
+            weightsByVar[feature] = [x for x in weights.values() if feature in x.feature.Name]
         allcoefsv = []
         allcoefsv2 = []
         alloffsets = []
         allotherfeatureid = []
         allmodulos = []
 
-        for var in self.features:
+        for feature in self.features:
             coefsv = []
             coefsv2 = []
             offsets = []
             otherfeatureid = []
             modulos = []
-            for w in weightsByVar[var]:
+            for w in weightsByVar[feature]:
                 offsets += [w.offset]
-                if type(w.feature) is featuremappings.CrossFeaturesMapping:
-                    if var == w.feature._v1:
+                if type(w.feature) is CrossFeaturesMapping:
+                    if feature == w.feature._v1:
                         coefsv += [1]
                         coefsv2 += [w.feature.coefV2]
                         otherfeatureid += [self.features.index(w.feature._v2)]
@@ -371,8 +367,8 @@ class AggMRFModel(BaseAggModel):
         # allcoefsv,allcoefsv2, alloffsets, allotherfeatureid = exportedDisplayWeights
         modalitiesByVarId = []
         for i in range(0, len(self.features)):
-            var = self.features[i]
-            modalitiesByVarId.append(np.arange(0, self.displayWeights[var].feature.Size - 1))
+            feature = self.features[i]
+            modalitiesByVarId.append(np.arange(0, self.displayWeights[feature].feature.Size - 1))
         modalitiesByVarId = (
             *(np.array(a) for a in modalitiesByVarId),
         )  # converting to tuple of np.array seems to make numba happier
