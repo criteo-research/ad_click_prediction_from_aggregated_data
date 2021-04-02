@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 import getpass
 from thx.hadoop import spark_config_builder
-from aggregated_models.validation import MetricsComputer
+from aggregated_models.validation import MetricsComputer, SparkMetricsComputer
 from aggregated_models.aggdataset import AggDataset
 import uuid
 
@@ -30,10 +30,13 @@ class ModelTestData:
 
         if spark_session is not None:
             self.spark_train = spark_session.createDataFrame(self.train)
+            self.spark_valid = spark_session.createDataFrame(self.train)
         else:
             self.spark_train = None
 
         self.validator = MetricsComputer(self.label)
+        if spark_session is not None:
+            self.spark_validator = SparkMetricsComputer(self.label)
 
         # parameters for of the privacy protecting noise.
         self.epsilon = None  # Set to None to get no noise.

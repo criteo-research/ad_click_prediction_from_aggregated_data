@@ -3,6 +3,7 @@ import numpy as np
 import scipy
 import matplotlib.pyplot as plt
 import random
+from dsl_metrics.metrics.llh_compv_n import llh_compv_n
 
 
 def LLH(prediction, y):
@@ -85,3 +86,20 @@ class MetricsComputer:
             agg["se"] = (agg[label] - agg[self.pred_col_name]) * (agg[label] - agg[self.pred_col_name])
             se += agg["se"].sum()
         return se / dfWithPrediction[label].sum()
+
+
+class SparkMetricsComputer:
+    def __init__(self, label, pred_col_name="prediction"):
+        self.label = label
+        self.pred_col_name = pred_col_name
+
+    def run(self, model, df):
+        nllh = self.getLLH(model, df)
+        return f"NLLH={nllh}"
+
+    def getLLH(self, model, df):
+        predictedDf = model.predictDF(df, self.pred_col_name)
+        nllh = predictedDf.agg(*llh_compv_n.of(label=self.label, pred=self.pred_col_name).aggregated_cols()).collect()[
+            0
+        ][0]
+        return nllh
