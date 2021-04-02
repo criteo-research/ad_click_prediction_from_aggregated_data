@@ -60,8 +60,8 @@ class MetricsComputer:
 
     def plot(self, model, df, features):
         a = self.getPredictedDf(model, df)
-        a = a[features + [label, "prediction"]].groupby(features).sum().reset_index()
-        plt.plot(a[label], a.prediction, "x")
+        a = a[features + [self.label, "prediction"]].groupby(features).sum().reset_index()
+        plt.plot(a[self.label], a.prediction, "x")
 
     def getPredictedDf(self, model, df):
         df = model.predictDF(df.copy())
