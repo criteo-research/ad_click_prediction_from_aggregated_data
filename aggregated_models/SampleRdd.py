@@ -92,10 +92,14 @@ class SampleRdd:
         return np.vstack([d for d in data])
 
     def UpdateSampleWithGibbs(self, model):
-        self.rddSamples = self._updateSamplesWithGibbsRdd(model)
-        self.rddSamples.checkpoint()
-        self.rddSamples.count()
+        rddnew = self._updateSamplesWithGibbsRdd(model)
+        rddnew.cache()  # caching before checkpoint, because checkpoint would triger the computation twice.
+        rddnew.checkpoint()
+        rddnew.count()  # force compute before uncache
+        self.rddSamples.unpersist()  # clean previous rdd
+        self.rddSamples = rddnew
         for k in self.broadcast_history:
+            # after the checkpoint, we can safely delete old broadcasted parameters
             k.destroy()
             self.broadcast_history = list()
 
