@@ -84,3 +84,23 @@ def test_agg_mrf_model_runs_on_fit(agg_data: AggDataset):
         maxNbRowsperGibbsUpdate=50,
     )
     memMrf.fit(nbIter)
+
+
+def test_agg_mrf_model_runs_on_spark_fit(spark_session, agg_data: AggDataset):
+    regulL2 = 16
+    nbSamples = 10000
+    nbIter = 50
+    memMrf = AggMRFModel(
+        agg_data,
+        agg_data.features,
+        exactComputation=False,
+        clicksCfs="*&*",
+        displaysCfs="*&*",
+        nbSamples=nbSamples,
+        regulL2=1.0,
+        regulL2Click=regulL2,
+        sampleFromPY0=True,
+        maxNbRowsperGibbsUpdate=50,
+        sparkSession=spark_session,
+    )
+    memMrf.fit(nbIter)
