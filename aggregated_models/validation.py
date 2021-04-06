@@ -38,13 +38,14 @@ def NMSE(prediction, y):
 
 
 class MetricsComputer:
-    def __init__(self, label):
+    def __init__(self, label, pred_col_name="prediction"):
         self.label = label
+        self.pred_col_name = pred_col_name
 
     def run(self, model, df):
         y = df[self.label].values
         predictedDf = self.getPredictedDf(model, df)
-        predictions = predictedDf["prediction"]
+        predictions = predictedDf[self.pred_col_name]
         nllh = NLlh(predictions, y)
         nmse = NMSE(predictions, y)
         # aggse = self.AggSe(predictedDf , model.features)
@@ -54,26 +55,25 @@ class MetricsComputer:
     def getLLH(self, model, df):
         y = df[self.label].values
         predictedDf = self.getPredictedDf(model, df)
-        predictions = predictedDf["prediction"]
+        predictions = predictedDf[self.pred_col_name]
         nllh = NLlh(predictions, y)
         return nllh
 
     def plot(self, model, df, features):
         a = self.getPredictedDf(model, df)
-        a = a[features + [self.label, "prediction"]].groupby(features).sum().reset_index()
-        plt.plot(a[self.label], a.prediction, "x")
+        a = a[features + [self.label, self.pred_col_name]].groupby(features).sum().reset_index()
+        plt.plot(a[self.label], a[self.pred_col_name], "x")
 
     def getPredictedDf(self, model, df):
-        df = model.predictDF(df.copy())
-        df["prediction"] = df["pclick"]
+        df = model.predictDF(df, self.pred_col_name)
         return df
 
     def AggL1Error(self, dfWithPrediction, features):
         label = self.label
         se = 0.0
         for var in features:
-            agg = dfWithPrediction[[var, label, "prediction"]].groupby(var).sum().reset_index()
-            agg["se"] = np.abs(agg[label] - agg.prediction)
+            agg = dfWithPrediction[[var, label, self.pred_col_name]].groupby(var).sum().reset_index()
+            agg["se"] = np.abs(agg[label] - agg[self.pred_col_name])
             se += agg["se"].sum()
         return se / dfWithPrediction[label].sum()
 
@@ -81,7 +81,7 @@ class MetricsComputer:
         label = self.label
         se = 0.0
         for var in features:
-            agg = dfWithPrediction[[var, label, "prediction"]].groupby(var).sum().reset_index()
-            agg["se"] = (agg[label] - agg.prediction) * (agg[label] - agg.prediction)
+            agg = dfWithPrediction[[var, label, self.pred_col_name]].groupby(var).sum().reset_index()
+            agg["se"] = (agg[label] - agg[self.pred_col_name]) * (agg[label] - agg[self.pred_col_name])
             se += agg["se"].sum()
         return se / dfWithPrediction[label].sum()

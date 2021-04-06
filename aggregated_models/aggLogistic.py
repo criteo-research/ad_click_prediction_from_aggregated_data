@@ -51,9 +51,9 @@ class AggLogistic(BaseAggModel):
         self.setDisplays(df)
         self.update()
 
-    def predictDFinternal(self, df):
+    def predictDFinternal(self, df, pred_col_name: str):
         df["lambda"] = self.dotproductsOnDF(self.clickWeights, df) + self.lambdaIntercept
-        df["pclick"] = 1.0 / (1.0 + np.exp(-df["lambda"]))
+        df[pred_col_name] = 1.0 / (1.0 + np.exp(-df["lambda"]))
         return df
 
     def predictinternal(self):
@@ -106,7 +106,7 @@ class AggLogistic(BaseAggModel):
         Optimizers.lbfgs(self, nbiter=nbIter, alpha=0.01, verbose=verbose)
 
     def computeExactLoss(self, df):
-        p = self.predictDF(df).pclick.values
+        p = self.predictDF(df, "pclick").pclick.values
         y = df[self.label].values
         avgy = sum(y) / len(y)
         llh = -sum(y * np.log(p) + (1.0 - y) * np.log(1.0 - p))

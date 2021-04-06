@@ -143,9 +143,9 @@ class RPPrivateLogistic:
         self.param = optimresult.x
         return optimresult
 
-    def predictDF(self, df):
+    def predictDF(self, df, pred_col_name: str):
         df = df.copy()
-        df["pclick"] = self.predict_proba(df)
+        df[pred_col_name] = self.predict_proba(df)
         return df
 
     def computeLossAndRegul(self, train):

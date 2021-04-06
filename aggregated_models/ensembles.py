@@ -12,9 +12,9 @@ class EnsembleModel:
         else:
             self.average = self.arithmeticAverage
 
-    def predictDF(self, df):
-        predictions = [model.predictDF(df.copy()).pclick.values for model in self.models]
-        df["pclick"] = self.average(predictions)
+    def predictDF(self, df, pred_col_name):
+        predictions = [model.predictDF(df.copy(), "prediction").prediction.values for model in self.models]
+        df[pred_col_name] = self.average(predictions)
         return df
 
     def arithmeticAverage(self, predictions):

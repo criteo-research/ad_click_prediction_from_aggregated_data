@@ -136,7 +136,7 @@ class AggMRFModel(BaseAggModel):
         self.parameters = x
         self.update()
 
-    def predictDFinternal(self, df):
+    def predictDFinternal(self, df, pred_col_name):
         # compute dot product on each line
         df["lambda"] = self.dotproductsOnDF(self.clickWeights, df) + self.lambdaIntercept
         df["mu"] = self.dotproductsOnDF(self.displayWeights, df) + self.muIntercept
@@ -146,7 +146,7 @@ class AggMRFModel(BaseAggModel):
             df["E(NbNoClick)"] = df["expmu"] * df["weight"]
             df["E(NbClick)"] = df["explambda"] * df["weight"]
             df["E(NbDisplays)"] = df["E(NbClick)"] + df["E(NbNoClick)"]
-        df["pclick"] = 1.0 / (1.0 + np.exp(-df["lambda"]))
+        df[pred_col_name] = 1.0 / (1.0 + np.exp(-df["lambda"]))
         return df
 
     def predictinternal(self, samples):
@@ -311,9 +311,9 @@ class AggMRFModel(BaseAggModel):
             endIterCallback=lambda: self.updateAllSamplesWithGibbs(),
         )
 
-    def predictDF(self, df):
+    def predictDF(self, df, pred_col_name: str):
         df = self.transformDf(df)
-        return self.predictDFinternal(df)
+        return self.predictDFinternal(df, pred_col_name)
 
     # export data useful to compute dotproduct
     def exportWeights(self, weights):

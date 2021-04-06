@@ -59,9 +59,9 @@ class LogisticModel:
         featuresdf = self.hasher.hash_features(df)
         return self.model.predict_proba(featuresdf)[:, 1]
 
-    def predictDF(self, df):
+    def predictDF(self, df, pred_col_name: str):
         df = df.copy()
-        df["pclick"] = self.predict_proba(df)
+        df[pred_col_name] = self.predict_proba(df)
         return df
 
 
@@ -91,9 +91,9 @@ class LogisticModelWithCF:
         dfWithCfs = self.featuresSet.transformDf(df)
         return self.model.predict_proba(dfWithCfs)
 
-    def predictDF(self, df):
+    def predictDF(self, df, pred_col_name: str):
         dfWithCfs = self.featuresSet.transformDf(df, True)
-        return self.model.predictDF(dfWithCfs)
+        return self.model.predictDF(dfWithCfs, pred_col_name)
 
     def computeLossAndRegul(self, train):
         p = logisticCfs.predict_proba(train)
@@ -131,9 +131,9 @@ class NaiveBayesModel:
 
         return unnormalizedP1 * 1.0 / (unnormalizedP1 + unnormalizedP0)
 
-    def predictDF(self, df):
+    def predictDF(self, df, pred_col_name: str):
         df = df.copy()
-        df["pclick"] = self.predict_proba(df)
+        df[pred_col_name] = self.predict_proba(df)
         return df
 
     def computeLLH(self, df):

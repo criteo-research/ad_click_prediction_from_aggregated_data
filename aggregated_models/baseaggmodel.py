@@ -44,6 +44,7 @@ class BaseAggModel:
         self.bestLoss = 9999999999999999.0
         self.nbEvals = 0
         self.normgrad = 0.0
+        self.parameters = None
 
     def transformDf(self, df):
         return self.aggdata.featuresSet.transformDf(df, False)
@@ -83,9 +84,9 @@ class BaseAggModel:
             x[w.indices] = proj.Data
         return x
 
-    def predictDF(self, df):
+    def predictDF(self, df, pred_col_name: str):
         df = self.transformDf(df)
-        return self.predictDFinternal(df)
+        return self.predictDFinternal(df, pred_col_name)
 
     def computeGradientAt(self, x):
         self.setparameters(x)
@@ -94,7 +95,7 @@ class BaseAggModel:
     def update(self):
         raise NotImplementedError
 
-    def predictDFinternal(self, df):
+    def predictDFinternal(self, df, pred_col_name: str):
         raise NotImplementedError
 
     def computeGradient(self):
