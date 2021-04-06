@@ -12,6 +12,10 @@ from aggregated_models.featuremappings import (
     SingleFeatureMapping,
     CrossFeaturesMapping,
 )
+import logging
+
+
+_log = logging.getLogger(__name__)
 
 
 class DataProjection:

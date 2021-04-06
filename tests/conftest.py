@@ -22,12 +22,16 @@ def spark_session():
 
 
 class ModelTestData:
-    def __init__(self):
+    def __init__(self, spark_session=None):
         self.train = pd.read_parquet("./tests/resources/small_train.parquet")
         self.valid = pd.read_parquet("./tests/resources/small_valid.parquet")
-
         self.features = ["cat1", "cat4", "cat6", "cat8", "cat9"]
         self.label = "click"
+
+        if spark_session is not None:
+            self.spark_train = spark_session.createDataFrame(self.train)
+        else:
+            self.spark_train = None
 
         self.validator = MetricsComputer(self.label)
 
@@ -35,7 +39,7 @@ class ModelTestData:
         self.epsilon = None  # Set to None to get no noise.
         self.delta = None
         self.aggdata = AggDataset(
-            dataframe=self.train,
+            dataframe=(self.train if self.spark_train is None else self.spark_train),
             features=self.features,
             label=self.label,
             epsilon0=self.epsilon,
@@ -47,3 +51,8 @@ class ModelTestData:
 @pytest.fixture(scope="session")
 def model_data():
     return ModelTestData()
+
+
+@pytest.fixture(scope="session")
+def spark_model_data(spark_session):
+    return ModelTestData(spark_session)

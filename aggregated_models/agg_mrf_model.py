@@ -4,14 +4,20 @@ import scipy
 import random
 from collections import Counter
 from joblib import Parallel, delayed
-
-from aggregated_models.featuremappings import CrossFeaturesMapping
+from typing import Dict
+from aggregated_models.featuremappings import SingleFeatureMapping, CrossFeaturesMapping
 from aggregated_models.SampleSet import SampleSet
-from aggregated_models.SampleRdd import SampleRdd
+from aggregated_models.SampleRdd import SampleRdd, VariableMRFParameters
 from aggregated_models import featureprojections
-from aggregated_models.baseaggmodel import BaseAggModel
+from aggregated_models.baseaggmodel import BaseAggModel, WeightsSet
 from aggregated_models import Optimizers
 from aggregated_models.mrf_helpers import ComputeRWpred, fastGibbsSample, fastGibbsSampleFromPY0
+import pyspark.sql.functions as F
+import pyspark.sql as ps
+import logging
+
+
+_log = logging.getLogger(__name__)
 
 
 class AggMRFModel(BaseAggModel):
@@ -136,7 +142,8 @@ class AggMRFModel(BaseAggModel):
         self.parameters = x
         self.update()
 
-    def predictDFinternal(self, df, pred_col_name):
+    def predict_pandas(self, df, pred_col_name):
+        _log.debug("Predicting on pandas Dataframe")
         # compute dot product on each line
         df["lambda"] = self.dotproductsOnDF(self.clickWeights, df) + self.lambdaIntercept
         df["mu"] = self.dotproductsOnDF(self.displayWeights, df) + self.muIntercept
@@ -148,6 +155,53 @@ class AggMRFModel(BaseAggModel):
             df["E(NbDisplays)"] = df["E(NbClick)"] + df["E(NbNoClick)"]
         df[pred_col_name] = 1.0 / (1.0 + np.exp(-df["lambda"]))
         return df
+
+    def _spark_dotproduct(self, df, weightsSet: Dict[str, WeightsSet]):
+        single_features = [
+            (w.offset, w.feature._fid) for w in weightsSet.values() if isinstance(w.feature, SingleFeatureMapping)
+        ]
+        cross_features = [
+            (w.offset, w.feature._fid1, w.feature._fid2, w.feature.coefV2, w.feature.Modulo)
+            for w in weightsSet.values()
+            if isinstance(w.feature, CrossFeaturesMapping)
+        ]
+
+        variableMRFParameters = df.sql_ctx.sparkSession.sparkContext.broadcast(VariableMRFParameters(self.parameters))
+
+        def compute_dot_prod(mods):
+            result = 0
+            for (o, fid) in single_features:
+                result += variableMRFParameters.value.parameters[o + mods[fid]]
+            for (o, fid1, fid2, coef, mod) in cross_features:
+                result += variableMRFParameters.value.parameters[o + ((mods[fid1] + coef * mods[fid2]) % mod)]
+            return result.item()
+
+        return F.udf(compute_dot_prod)
+
+    def predict_spark(self, df, prediction):
+        _log.debug("Predicting on spark Dataframe")
+        df = df.withColumn("mods", F.array(*[F.col(f) for f in self.features]))
+        lamb = (self._spark_dotproduct(df, self.clickWeights)(F.col("mods")) + F.lit(self.lambdaIntercept)).alias(
+            "lambda"
+        )
+        mu = (self._spark_dotproduct(df, self.displayWeights)(F.col("mods")) + F.lit(self.muIntercept)).alias("mu")
+        expmu = F.exp(mu).alias("expmu")
+        explambda = F.exp(lamb * expmu).alias("explambda")
+        if "weight" in df.columns:
+            weight = F.col("weight")
+            e_noclick = (expmu * weight).alias("e_noclick")
+            e_click = (explambda * weight).alias("e_click")
+            e_nbdisplays = (e_noclick + e_click).alias("e_nbdisplays")
+            df = df.withColumn("e_nbdisplays", e_nbdisplays)
+        return df.withColumn(prediction, F.lit(1.0) / (F.lit(1.0) + F.exp(-lamb)))
+
+    def predictDFinternal(self, df, prediction: str):
+        if isinstance(df, pd.DataFrame):
+            return self.predict_pandas(df, prediction)
+        elif isinstance(df, ps.DataFrame):
+            return self.predict_spark(df, prediction)
+        else:
+            raise NotImplementedError(f"Prediction not implemented for {type(df)}")
 
     def predictinternal(self, samples):
         samples.PredictInternal(self)
@@ -231,7 +285,7 @@ class AggMRFModel(BaseAggModel):
 
     #  LLH(data) . Only available if exactcomputations = True
     def ExactLoss(self, df):
-        df = self.predictDF(df.copy())
+        df = self.predictDF(df, "prediction")
         return np.mean(np.log((df["expmu"] * (1 - df.click) + df["explambda"] * df.click).values / self.getZ()))
 
     # todo:  estimation when exactcomputations != True
@@ -310,10 +364,6 @@ class AggMRFModel(BaseAggModel):
             alpha=alpha,
             endIterCallback=lambda: self.updateAllSamplesWithGibbs(),
         )
-
-    def predictDF(self, df, pred_col_name: str):
-        df = self.transformDf(df)
-        return self.predictDFinternal(df, pred_col_name)
 
     # export data useful to compute dotproduct
     def exportWeights(self, weights):
