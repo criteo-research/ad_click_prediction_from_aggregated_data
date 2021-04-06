@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import random
 import bisect
+import itertools
+import operator
 from collections import Counter
 from aggregated_models.featuremappings import (
     CrossFeaturesMapping,
@@ -126,12 +128,13 @@ class SampleRdd:
     def _compute_prediction(self, model, rdd_sample_enoclick_eclick_zi):
         rdd_one_hot_index = self._convert_to_one_hot_index(model, rdd_sample_enoclick_eclick_zi)
         rdd_exploded = self._explode_one_hot_index(rdd_one_hot_index)
-        projections = self._compute_prediction_projections(rdd_exploded)
-        projections = np.vstack(projections.collect())
-        z_on_z0 = projections[:, 2].sum()
+        projections = self._compute_prediction_projections(rdd_exploded).collectAsMap()
+        z_on_z0 = projections[-1]
+        del projections[-1]
         predict = np.zeros(model.parameters.size)
-        indices = projections[:, 0].astype(int)
-        predict[indices] = (projections[:, 1]) * self.Size / z_on_z0
+        indices = np.array(list(projections.keys()))
+        values = np.array(list(projections.values()))
+        predict[indices] = values * self.Size / z_on_z0
         return predict
 
     def PredictInternal(self, model):
@@ -249,24 +252,23 @@ class SampleRdd:
             probability: probability weight of display or click
             zi: Normalisation term used to compute final probability
         """
-
         constantMRFParameters = self.constantMRFParameters
+
+        def oneHotEncode(x, weights):
+            proj = np.zeros(len(weights), np.int32)
+            for k, w in enumerate(weights):
+                proj[k] = w.feature.Values_(x) + w.offset
+            return proj
 
         def convertForFlatMap(x_enoclick_eclick_zi):
             x, enoclick, eclick, zi = x_enoclick_eclick_zi
-            nbDisplayWeights = len(constantMRFParameters.value.displayWeights)
-            nbClickWeights = len(constantMRFParameters.value.clickWeights)
-            proj_display = np.zeros((nbDisplayWeights + 2))
-            proj_click = np.zeros((nbClickWeights + 2))
-            proj_display[-2] = enoclick + eclick
-            proj_click[-2] = eclick
-            proj_display[-1] = zi  # broadcast zi only once per vector to avoid normalization error
-            proj_click[-1] = 0  # broadcast zi only once per vector to avoid normalization error
-            for k, w in enumerate(constantMRFParameters.value.displayWeights.values()):
-                proj_display[k] = w.feature.Values_(x) + w.offset
-            for k, w in enumerate(constantMRFParameters.value.clickWeights.values()):
-                proj_click[k] = w.feature.Values_(x) + w.offset
-            return [proj_display, proj_click]
+            proj_display = oneHotEncode(x, constantMRFParameters.value.displayWeights.values())
+            proj_click = oneHotEncode(x, constantMRFParameters.value.clickWeights.values())
+            return (
+                (proj_display, enoclick + eclick),
+                (proj_click, eclick),
+                ([-1], zi),  # Keeping index '-1' to get sums of zi
+            )
 
         return rdd_x_enoclick_eclick_zi.flatMap(convertForFlatMap)
 
@@ -283,12 +285,9 @@ class SampleRdd:
             zi: Normalisation term used to compute final probability
         """
 
-        def explodeProjections(mod_proba_zi):
-            explosion = np.zeros((len(mod_proba_zi) - 2, 3))
-            explosion[:, 0] = mod_proba_zi[:-2]  # Explode modalities
-            explosion[:, 1] = mod_proba_zi[-2]  # Set weights (1 per modality)
-            explosion[0, 2] = mod_proba_zi[-1]  # Set normalization constant (once only per vector)
-            return explosion
+        def explodeProjections(modalities_value):
+            modalities, value = modalities_value
+            return zip(modalities, itertools.repeat(value))
 
         return rdd_one_hot_index.flatMap(explodeProjections)
 
@@ -304,9 +303,4 @@ class SampleRdd:
             probability: sum of probability weights for the modality
             zi: Partial sum of the normalisation term
         """
-        return (
-            rdd_exploded.keyBy(lambda sample_prediction: sample_prediction[0])
-            .mapValues(lambda sample_prediction: sample_prediction[1:])
-            .reduceByKey(lambda prediction, prediction_1: prediction + prediction_1)
-            .map(lambda proj_prediction: np.hstack((proj_prediction[0], proj_prediction[1])))
-        )
+        return rdd_exploded.reduceByKey(operator.add)
