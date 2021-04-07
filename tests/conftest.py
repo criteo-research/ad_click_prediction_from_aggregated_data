@@ -30,9 +30,10 @@ class ModelTestData:
 
         if spark_session is not None:
             self.spark_train = spark_session.createDataFrame(self.train)
-            self.spark_valid = spark_session.createDataFrame(self.train)
+            self.spark_valid = spark_session.createDataFrame(self.valid)
         else:
             self.spark_train = None
+            self.spark_valid = None
 
         self.validator = MetricsComputer(self.label)
         if spark_session is not None:

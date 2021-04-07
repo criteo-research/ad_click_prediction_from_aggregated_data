@@ -99,7 +99,6 @@ class SparkMetricsComputer:
 
     def getLLH(self, model, df):
         predictedDf = model.predictDF(df, self.pred_col_name)
-        nllh = predictedDf.agg(*llh_compv_n.of(label=self.label, pred=self.pred_col_name).aggregated_cols()).collect()[
-            0
-        ][0]
+        agg_df = predictedDf.agg(*llh_compv_n.of(label=self.label, pred=self.pred_col_name).aggregated_cols())
+        nllh = agg_df.collect()[0][0]
         return nllh
