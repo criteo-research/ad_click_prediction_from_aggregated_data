@@ -635,3 +635,48 @@ def gibbsOneSampleFromPY0(exportedDisplayWeights, modalitiesByVarId, paramsVecto
             # updating the samples
             x[varId] = varnew
     return x
+
+
+@jit
+def oneHotEncode(x, explosedDisplayWeights):
+    f = np.arange(0, len(x))
+    (
+        allcoefsv,
+        allcoefsv2,
+        alloffsets,
+        allotherfeatureid,
+        allmodulos,
+    ) = explosedDisplayWeights
+    nb_weights = len(allcoefsv)
+
+    proj = []
+
+    # For each feature, ressample this feature conditionally to the other
+    for varId in f:
+
+        # data describing the different crossfeatures involving varId  in " K(x).mu"
+        # Those things are arrays, of len the number of crossfeatures involving varId.
+        disp_coefsv = allcoefsv[varId]
+        disp_coefsv2 = allcoefsv2[varId]
+        disp_offsets = alloffsets[varId]
+        disp_otherfeatureid = allotherfeatureid[varId]
+        disp_modulos = allmodulos[varId]
+
+        # Computing the dotproducts
+        #  For each crossfeature containing varId
+        for varJ in np.arange(0, len(disp_coefsv)):
+
+            modulo = disp_modulos[varJ]
+            # let m a modality of feature varId, and m' a modality of the other feature
+            #  Value of the crossfeature is " m *  disp_coefsv[varJ] + m' * disp_coefsv2[varJ]  "
+            # values of m' in the data
+            modsJ = x[disp_otherfeatureid[varJ]] * disp_coefsv2[varJ]
+            # all possible modality m
+            mods = x[varId] * disp_coefsv[varJ]
+            # Computing crossfeatures
+            # this is a matrix of shape (nbSamples, nbModalities of varId)
+            crossmods = ((modsJ + mods) % modulo) + disp_offsets[varJ]
+            # Adding crossfeature weight.
+            proj.append(crossmods)
+
+    return np.unique(np.array(proj, np.int32))

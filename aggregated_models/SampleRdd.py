@@ -9,7 +9,7 @@ from aggregated_models.featuremappings import (
     CrossFeaturesMapping,
     SingleFeatureMapping,
 )
-from aggregated_models.mrf_helpers import gibbsOneSampleFromPY0
+from aggregated_models.mrf_helpers import gibbsOneSampleFromPY0, oneHotEncode
 
 
 MAXMODALITIES = 1e7
@@ -27,6 +27,7 @@ class ConstantMRFParameters:
         nbParameters,
         sampleFromPY0,
         explosedDisplayWeights,
+        explosedClickWeights,
         displayWeights,
         clickWeights,
         modalitiesByVarId,
@@ -37,6 +38,7 @@ class ConstantMRFParameters:
         self.nbParameters = nbParameters
         self.sampleFromPY0 = sampleFromPY0
         self.explosedDisplayWeights = explosedDisplayWeights
+        self.explosedClickWeights = explosedClickWeights
         self.displayWeights = displayWeights
         self.clickWeights = clickWeights
         self.modalitiesByVarId = modalitiesByVarId
@@ -73,13 +75,14 @@ class SampleRdd:
         self.broadcast_history = list()
         self.rddSamples = sparkSession.sparkContext.parallelize(data)
         self.variableMRFParameters = sparkSession.sparkContext.broadcast(VariableMRFParameters(model.parameters))
-        (exportedDisplayWeights, _, modalitiesByVarId, _) = model.exportWeightsAll()
+        (exportedDisplayWeights, exportedClickWeights, modalitiesByVarId, _) = model.exportWeightsAll()
         self.constantMRFParameters = sparkSession.sparkContext.broadcast(
             ConstantMRFParameters(
                 self.Size,
                 model.parameters.size,
                 self.sampleFromPY0,
                 exportedDisplayWeights,
+                exportedClickWeights,
                 model.displayWeights,
                 model.clickWeights,
                 modalitiesByVarId,
@@ -253,16 +256,10 @@ class SampleRdd:
         """
         constantMRFParameters = self.constantMRFParameters
 
-        def oneHotEncode(x, weights):
-            proj = np.zeros(len(weights), np.int32)
-            for k, w in enumerate(weights):
-                proj[k] = w.feature.Values_(x) + w.offset
-            return proj
-
         def convertForFlatMap(x_enoclick_eclick_zi):
             x, enoclick, eclick, zi = x_enoclick_eclick_zi
-            proj_display = oneHotEncode(x, constantMRFParameters.value.displayWeights.values())
-            proj_click = oneHotEncode(x, constantMRFParameters.value.clickWeights.values())
+            proj_display = oneHotEncode(x, constantMRFParameters.value.explosedDisplayWeights)
+            proj_click = oneHotEncode(x, constantMRFParameters.value.explosedClickWeights)
             return (
                 (proj_display, enoclick + eclick),
                 (proj_click, eclick),
