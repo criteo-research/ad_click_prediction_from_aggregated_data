@@ -1,4 +1,5 @@
 import pandas as pd
+import pickle
 import pyspark.sql.functions as F
 from aggregated_models.diff_priv_noise import GaussianMechanism, LaplaceMechanism
 from aggregated_models.featureprojections import (
@@ -8,43 +9,58 @@ from aggregated_models.featureprojections import (
     DataProjection,
     parseCF,
 )
-from aggregated_models.featureprojectionspark import (
-    SingleFeatureProjectionSpark,
-    CrossFeaturesProjectionSpark,
-)
 
 
 class FeaturesSet:
-    def __init__(self, features, crossfeaturesStr, df, maxNbModalities=None):
+    def __init__(self, features, crossfeaturesStr, df, maxNbModalities=None, singlefeaturesmappings=None):
         self.features = features
-        self.crossfeatures = parseCF(features, crossfeaturesStr)
+        self.crossfeaturesStr = crossfeaturesStr
         self.maxNbModalities = maxNbModalities
+        if singlefeaturesmappings is None:
+            self.mappings = self.buildSimpleMappings(df)
+        else:
+            self.mappings = singlefeaturesmappings
 
+        self.crossfeatures = parseCF(features, crossfeaturesStr)
         allfeatures = [f for cf in self.crossfeatures for f in cf]
         if any([f not in features for f in allfeatures]):
             raise Exception("Error: Some cross feature not declared in features list ")
-        self.buildFeaturesMapping(df)
+        self.addCrossesMappings()
 
-    def buildFeaturesMapping(self, df):
+    def dump(self, handle):
+        pickle.dump(self.features, handle)
+        pickle.dump(self.crossfeaturesStr, handle)
+        pickle.dump(self.maxNbModalities, handle)
+        for f in self.features:
+            self.mappings[f].dump(handle)
+
+    @staticmethod
+    def load(handle, ss=None):
+        features = pickle.load(handle)
+        crossfeaturesStr = pickle.load(handle)
+        maxNbModalities = pickle.load(handle)
+        mappings = {}
+        for f in features:
+            mappings[f] = SingleFeatureProjection.load(handle)
+        return FeaturesSet(features, crossfeaturesStr, None, maxNbModalities, mappings)
+
+    def buildSimpleMappings(self, df):
         mappings = {}
         fid = 0
         for var in self.features:
-            if isinstance(df, pd.DataFrame):
-                mapping = SingleFeatureProjection(var, df, fid, self.maxNbModalities)
-            else:
-                mapping = SingleFeatureProjectionSpark(var, df, fid, self.maxNbModalities)
+            mapping = SingleFeatureProjection(var, df, fid, self.maxNbModalities)
             mappings[var] = mapping
             fid += 1
+        return mappings
 
+    def addCrossesMappings(self):
+        mappings = self.mappings
+        fid = len(mappings)
         for cf in self.crossfeatures:
             if len(cf) != 2:
                 raise Exception("cf of len !=2  not supported yet")
-            if isinstance(df, pd.DataFrame):
-                mapping = CrossFeaturesProjection(mappings[cf[0]], mappings[cf[1]], self.maxNbModalities)
-            else:
-                mapping = CrossFeaturesProjectionSpark(mappings[cf[0]], mappings[cf[1]], self.maxNbModalities)
+            mapping = CrossFeaturesProjection(mappings[cf[0]], mappings[cf[1]], self.maxNbModalities)
             mappings[mapping.Name] = mapping
-        self.mappings = mappings
 
     def getMapping(self, var):
         return self.mappings[var].get_feature_mapping()
@@ -82,6 +98,8 @@ class AggDataset:
         removeNegativeValues=False,
         maxNbModalities=None,
     ):
+        if dataframe is None:
+            return
         self.label = label
         self.featuresSet = FeaturesSet(features, "*&*", dataframe, maxNbModalities)
         self.features = self.featuresSet.features
@@ -93,6 +111,10 @@ class AggDataset:
         self.aggDisplays = self.featuresSet.Project(dataframe, self._DISPLAY_COL_NAME)
         self.Nbclicks = self.aggClicks[features[0]].Data.sum()
         self.Nbdisplays = self.aggDisplays[features[0]].Data.sum()
+
+        self.epsilon0 = epsilon0
+        self.delta = delta
+        self.removeNegativeValues = removeNegativeValues
 
         if epsilon0 is not None:
             self.MakeDiffPrivate(epsilon0, delta, removeNegativeValues)
@@ -132,4 +154,41 @@ class AggDataset:
             proj.Data += self.noiseDistribution.Sample(n)
             if removeNegativeValues:
                 proj.Data[proj.Data < 0] = 0
+        return self
+
+    def dump(self, handle):
+        self.featuresSet.dump(handle)
+        pickle.dump({k: v.Data for (k, v) in self.aggDisplays.items()}, handle)
+        pickle.dump({k: v.Data for (k, v) in self.aggClicks.items()}, handle)
+        pickle.dump(self.label, handle)
+        pickle.dump(self.features, handle)
+        pickle.dump(self.Nbclicks, handle)
+        pickle.dump(self.Nbdisplays, handle)
+        pickle.dump(self.epsilon0, handle)
+        pickle.dump(self.delta, handle)
+        pickle.dump(self.removeNegativeValues, handle)
+
+    @staticmethod
+    def load(handle, ss=None):
+        self = AggDataset(None, None)
+
+        self.featuresSet = FeaturesSet.load(handle, ss)
+        aggDisplaysRaw = pickle.load(handle)
+        aggClicksRaw = pickle.load(handle)
+        self.label = pickle.load(handle)
+        self.features = pickle.load(handle)
+        self.Nbclicks = pickle.load(handle)
+        self.Nbdisplays = pickle.load(handle)
+        self.epsilon0 = pickle.load(handle)
+        self.delta = pickle.load(handle)
+        self.removeNegativeValues = pickle.load(handle)
+
+        self.aggDisplays = {}
+        for k in aggDisplaysRaw:
+            feature = self.featuresSet.mappings[k]
+            self.aggDisplays[k] = DataProjection(feature, None, k, aggDisplaysRaw[k])
+        self.aggClicks = {}
+        for k in aggClicksRaw:
+            feature = self.featuresSet.mappings[k]
+            self.aggClicks[k] = DataProjection(feature, None, k, aggClicksRaw[k])
         return self
