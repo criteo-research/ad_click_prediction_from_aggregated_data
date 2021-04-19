@@ -469,3 +469,27 @@ class AggMRFModel(BaseAggModel):
         samplesSlices = runner(jobs)
         # samplesSlices = [ myfun(myslice) for myslice in  slices ]
         return np.vstack(samplesSlices).transpose()
+
+    # Saving parameters and samples.
+    # Warning: Not saving featuremappings,
+    # would not work if instanciated from a different sample of the same dataset.
+    def save(self, name):
+        np.save(name + "_params", self.parameters)
+        if type(self.samples) is SampleRdd:
+            data = np.array(self.samples.rddSamples.collect()).transpose()
+        else:
+            data = self.samples.data
+        np.save(name + "_samples", data)
+
+    def load(self, name):
+        extension = ".npy"
+        data = np.load(name + "_samples" + extension)
+
+        if type(self.samples) is SampleRdd:
+            self.samples.rddSamples.unpersist()
+            self.samples.rddSamples = self.sparkSession.sparkContext.parallelize(data.transpose())
+        else:
+            self.samples.data = data
+
+        params = np.load(name + "_params" + extension)
+        self.setparameters(params)
