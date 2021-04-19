@@ -42,6 +42,11 @@ def simpleGradientStep(
         print(f"simpleGradientStep iter={i}     ", end="\r")
         g = model.computeGradient()
         d = -g * model.computeInvHessianDiag()
+
+        maxgrad = 2.0
+        d[d > maxgrad] = maxgrad
+        d[d < -maxgrad] = -maxgrad
+
         x = model.parameters
         xnew = x + alpha * d
         model.setparameters(xnew)
