@@ -83,6 +83,18 @@ class FeaturesSet:
     def __repr__(self):
         return ",".join(f.Name for f in self.mappings.values())
 
+    def fix_fids(self, features_sublist):
+        fid = 0
+        mappings = self.mappings
+        for f in features_sublist:
+            mapping = mappings[f]
+            mapping._fid = fid
+            fid += 1
+        for cf in mappings.values():
+            if type(cf) is CrossFeaturesProjection:
+                cf._fid1 = mappings[cf._v1]._fid
+                cf._fid2 = mappings[cf._v2]._fid
+
 
 class AggDataset:
     _DISPLAY_COL_NAME = "display"

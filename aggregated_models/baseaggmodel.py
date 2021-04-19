@@ -38,6 +38,9 @@ class WeightsSet:
 # Abstract class for models learned from agg data
 class BaseAggModel:
     def __init__(self, aggdata, features):
+
+        aggdata.featuresSet.fix_fids(features)  # to work with a sublist of the features in aggdata
+
         self.aggdata = aggdata
         self.features = features
         self.label = self.aggdata.label
