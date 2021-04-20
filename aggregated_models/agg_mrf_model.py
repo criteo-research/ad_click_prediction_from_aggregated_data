@@ -64,6 +64,9 @@ class AggMRFModel(BaseAggModel):
         self.lastPredict = None
         self.sparkSession = sparkSession
         # Preparing weights, parameters, samples ...
+
+        self.modifiedGradient = False
+
         self.prepareFit()
 
     def setProjections(self):
@@ -256,6 +259,16 @@ class AggMRFModel(BaseAggModel):
     def recomputeGradient(self, samples):  # grad of loss
         predictions = self.getPredictionsVector(samples)
         gradient = -self.Data + predictions
+
+        if self.modifiedGradient:
+            displays = self.Data[: self.offsetClicks]
+            clicks = self.Data[self.offsetClicks :]
+            pdisplays = predictions[: self.offsetClicks]
+            pclicks = predictions[self.offsetClicks :]
+            ratio = (displays + 1) / (pdisplays + 1)
+            smoothedClickGrad = -clicks * np.minimum(1 / ratio, 1.0) + pclicks * np.minimum(ratio, 1.0)
+            gradient[self.offsetClicks :] = smoothedClickGrad
+
         if self.noiseDistribution is not None:
             noise = self.expectedNoise(predictions, samples)
             gradient += noise  # - (data-noise - preds)
