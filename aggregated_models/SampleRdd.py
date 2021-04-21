@@ -62,6 +62,7 @@ class SampleRdd:
         decollapseGibbs=False,
         sampleFromPY0=False,
         data=None,
+        maxNbRowsPerSlice=50,
     ):
         self.projections = projections
         self.decollapseGibbs = decollapseGibbs
@@ -73,7 +74,7 @@ class SampleRdd:
         self.prediction = None
         self.sparkSession = sparkSession
         self.broadcast_history = list()
-        self.rddSamples = sparkSession.sparkContext.parallelize(data)
+        self.rddSamples = sparkSession.sparkContext.parallelize(data, numSlices=nbSamples / maxNbRowsPerSlice)
         self.variableMRFParameters = sparkSession.sparkContext.broadcast(VariableMRFParameters(model.parameters))
         (exportedDisplayWeights, exportedClickWeights, modalitiesByVarId, _) = model.exportWeightsAll()
         self.constantMRFParameters = sparkSession.sparkContext.broadcast(

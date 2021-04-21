@@ -80,6 +80,6 @@ def test_agg_mrf_model_runs_on_fit(agg_data: AggDataset):
         regulL2=1.0,
         regulL2Click=regulL2,
         sampleFromPY0=True,
-        maxNbRowsperGibbsUpdate=50,
+        maxNbRowsPerSlice=50,
     )
     memMrf.fit(nbIter)

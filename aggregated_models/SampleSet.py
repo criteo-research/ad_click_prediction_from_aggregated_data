@@ -19,7 +19,7 @@ class SampleSet:
         nbSamples=None,
         decollapseGibbs=False,
         sampleFromPY0=False,
-        maxNbRowsperGibbsUpdate=50,
+        maxNbRowsPerSlice=50,
         rows=None,
     ):
         self.projections = projections
@@ -108,7 +108,7 @@ class SampleSet:
         return self.prediction
 
     def UpdateSampleWithGibbs(self, model):
-        self.columns = model.RunParallelGibbsSampler(self, maxNbRows=model.maxNbRowsperGibbsUpdate)
+        self.columns = model.RunParallelGibbsSampler(self, maxNbRows=model.maxNbRowsPerSlice)
 
     def UpdateSampleWeights(self, model):
         self._computedotprods(model)

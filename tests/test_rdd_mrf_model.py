@@ -17,7 +17,7 @@ def test_rdd_agg_mrf_model(spark_session, model_data):
         regulL2=1.0,  # parmeter "lambda_2"
         regulL2Click=regulL2,  # parmeter "lambda_1"
         sampleFromPY0=True,
-        maxNbRowsperGibbsUpdate=100,
+        maxNbRowsPerSlice=1000,
         sparkSession=spark_session,
     )
     rddMrf.fit(nbIter, 0.05)
@@ -39,7 +39,7 @@ def test_rdd_agg_mrf_model_spark_predict(spark_session, spark_model_data):
         regulL2=1.0,  # parmeter "lambda_2"
         regulL2Click=regulL2,  # parmeter "lambda_1"
         sampleFromPY0=True,
-        maxNbRowsperGibbsUpdate=100,
+        maxNbRowsPerSlice=1000,
         sparkSession=spark_session,
     )
     rddMrf.fit(nbIter, 0.05)
@@ -67,7 +67,7 @@ def test_spark_agg_mrf_model_spark_validation(spark_session, spark_model_data):
         regulL2=1.0,  # parmeter "lambda_2"
         regulL2Click=regulL2,  # parmeter "lambda_1"
         sampleFromPY0=True,
-        maxNbRowsperGibbsUpdate=100,
+        maxNbRowsPerSlice=1000,
         sparkSession=spark_session,
     )
     rddMrf.fit(nbIter, 0.05)

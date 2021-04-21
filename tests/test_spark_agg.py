@@ -70,7 +70,7 @@ def test_agg_data_gives_correct_aggregations(agg_data: AggDataset):
 def test_in_memory_mrf_model_runs_on_fit(agg_data: AggDataset):
     regulL2 = 16
     nbSamples = 10000
-    nbIter = 50
+    nbIter = 3
     memMrf = AggMRFModel(
         agg_data,
         agg_data.features,
@@ -81,7 +81,7 @@ def test_in_memory_mrf_model_runs_on_fit(agg_data: AggDataset):
         regulL2=1.0,
         regulL2Click=regulL2,
         sampleFromPY0=True,
-        maxNbRowsperGibbsUpdate=50,
+        maxNbRowsPerSlice=50,
     )
     memMrf.fit(nbIter)
 
@@ -89,7 +89,7 @@ def test_in_memory_mrf_model_runs_on_fit(agg_data: AggDataset):
 def test_rdd_mrf_model_runs_on_spark_fit(spark_session, agg_data: AggDataset):
     regulL2 = 16
     nbSamples = 10000
-    nbIter = 50
+    nbIter = 3
     rddMrf = AggMRFModel(
         agg_data,
         agg_data.features,
@@ -100,7 +100,7 @@ def test_rdd_mrf_model_runs_on_spark_fit(spark_session, agg_data: AggDataset):
         regulL2=1.0,
         regulL2Click=regulL2,
         sampleFromPY0=True,
-        maxNbRowsperGibbsUpdate=50,
+        maxNbRowsPerSlice=1000,
         sparkSession=spark_session,
     )
     rddMrf.fit(nbIter)

@@ -35,7 +35,7 @@ class AggMRFModel(BaseAggModel):
         activeFeatures=None,  # Obsolete (was used to incrementaly learn the model)
         noiseDistribution=None,  # Parameters of the noise on the aggregated data (if any)   ,
         sampleFromPY0=False,
-        maxNbRowsperGibbsUpdate=50,
+        maxNbRowsPerSlice=50,
         sparkSession=None,
     ):
         super().__init__(aggdata, features)
@@ -51,7 +51,7 @@ class AggMRFModel(BaseAggModel):
         self.allFeatures = self.features
         self.activeFeatures = activeFeatures if activeFeatures is not None else features
         # batch Size for the Gibbs sampler. (too high => memory issues on large models)
-        self.maxNbRowsperGibbsUpdate = maxNbRowsperGibbsUpdate
+        self.maxNbRowsPerSlice = maxNbRowsPerSlice
         self.noiseDistribution = noiseDistribution
         self.sampleFromPY0 = sampleFromPY0
         # Compute Monte Carlo by sampling Y  (no good reason to do that ? )
@@ -92,7 +92,7 @@ class AggMRFModel(BaseAggModel):
             self.nbSamples,
             self.decollapseGibbs,
             self.sampleFromPY0,
-            self.maxNbRowsperGibbsUpdate,
+            self.maxNbRowsPerSlice,
         )
 
         return samples
@@ -220,7 +220,7 @@ class AggMRFModel(BaseAggModel):
 
     def getPredictionsVector(self, samples):
         if self.RaoBlackwellization:
-            return ComputeRWpred(self, samples, self.maxNbRowsperGibbsUpdate)
+            return ComputeRWpred(self, samples, self.maxNbRowsPerSlice)
 
         return samples.GetPrediction(self)
 
@@ -353,6 +353,7 @@ class AggMRFModel(BaseAggModel):
             samples.decollapseGibbs,
             samples.sampleFromPY0,
             samples.get_rows(),
+            self.maxNbRowsPerSlice,
         )
 
     def buildSamplesSetFromSampleRdd(self, samples):
@@ -361,7 +362,7 @@ class AggMRFModel(BaseAggModel):
             samples.Size,
             samples.decollapseGibbs,
             samples.sampleFromPY0,
-            self.maxNbRowsperGibbsUpdate,
+            self.maxNbRowsPerSlice,
             samples.get_rows(),
         )
 
