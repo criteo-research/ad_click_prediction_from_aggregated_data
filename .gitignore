@@ -117,3 +117,5 @@ adapt_template.sh
 
 .metals/metals.h2.db
 .vscode/settings.json
+#IDEs
+.idea

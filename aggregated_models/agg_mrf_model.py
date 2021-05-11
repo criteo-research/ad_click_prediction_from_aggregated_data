@@ -1,21 +1,21 @@
-import pandas as pd
-import numpy as np
-import scipy
-import random
-from collections import Counter
-from joblib import Parallel, delayed
-from typing import Dict
-from aggregated_models.featuremappings import SingleFeatureMapping, CrossFeaturesMapping
-from aggregated_models.SampleSet import SampleSet
-from aggregated_models.SampleRdd import SampleRdd, VariableMRFParameters
-from aggregated_models import featureprojections
-from aggregated_models.baseaggmodel import BaseAggModel, WeightsSet
-from aggregated_models import Optimizers
-from aggregated_models.mrf_helpers import ComputeRWpred, fastGibbsSample, fastGibbsSampleFromPY0
-import pyspark.sql.functions as F
-import pyspark.sql as ps
 import logging
+from typing import Dict, List, Optional
 
+import numpy as np
+import pandas as pd
+import pyspark.sql as ps
+import pyspark.sql.functions as F
+from joblib import Parallel, delayed
+from pyspark.sql import SparkSession
+
+from aggregated_models import Optimizers
+from aggregated_models import featureprojections
+from aggregated_models.SampleRdd import SampleRdd, VariableMRFParameters
+from aggregated_models.SampleSet import SampleSet
+from aggregated_models.aggdataset import AggDataset
+from aggregated_models.baseaggmodel import BaseAggModel, WeightsSet
+from aggregated_models.featuremappings import SingleFeatureMapping, CrossFeaturesMapping
+from aggregated_models.mrf_helpers import ComputeRWpred, fastGibbsSample, fastGibbsSampleFromPY0
 
 _log = logging.getLogger(__name__)
 
@@ -23,20 +23,20 @@ _log = logging.getLogger(__name__)
 class AggMRFModel(BaseAggModel):
     def __init__(
         self,
-        aggdata,
-        features,
-        priorDisplays=0.5,  # used for initialization of weights associated to  "unknown modalities"
-        exactComputation=False,  #
-        nbSamples=1e5,  # Nb internal Gibbs samples
-        regulL2=1.0,  # regularization parameter on 'mu'
-        regulL2Click=None,  # regularization parameter on the parameters of P(Y|X). by default, same value as regulL2
-        displaysCfs="*&*",
-        clicksCfs="*&*",
-        activeFeatures=None,  # Obsolete (was used to incrementaly learn the model)
+        aggdata: AggDataset,
+        features: List[int],
+        priorDisplays: float = 0.5,  # used for initialization of weights associated to  "unknown modalities"
+        exactComputation: bool = False,  #
+        nbSamples: float = 1e5,  # Nb internal Gibbs samples
+        regulL2: float = 1.0,  # regularization parameter on 'mu'
+        regulL2Click: Optional[float] = None,  # regularization parameter on the parameters of P(Y|X). by default,
+        # same value as regulL2
+        displaysCfs: str = "*&*",
+        clicksCfs: str = "*&*",
         noiseDistribution=None,  # Parameters of the noise on the aggregated data (if any)   ,
-        sampleFromPY0=False,
-        maxNbRowsPerSlice=50,
-        sparkSession=None,
+        sampleFromPY0: bool = False,
+        maxNbRowsPerSlice: int = 50,
+        sparkSession: Optional[SparkSession] = None,
     ):
         super().__init__(aggdata, features)
         self.priorDisplays = priorDisplays
@@ -48,8 +48,6 @@ class AggMRFModel(BaseAggModel):
         self.displaysCfs = featureprojections.parseCFNames(self.features, displaysCfs)
         self.clicksCfs = featureprojections.parseCFNames(self.features, clicksCfs)
 
-        self.allFeatures = self.features
-        self.activeFeatures = activeFeatures if activeFeatures is not None else features
         # batch Size for the Gibbs sampler. (too high => memory issues on large models)
         self.maxNbRowsPerSlice = maxNbRowsPerSlice
         self.noiseDistribution = noiseDistribution
@@ -108,7 +106,7 @@ class AggMRFModel(BaseAggModel):
         self.muIntercept = np.log(nbdisplays - nbclicks)
         self.lambdaIntercept = np.log(nbclicks) - self.muIntercept
         logNbDisplay = np.log(nbdisplays)
-        for feature in self.activeFeatures:
+        for feature in self.features:
             weights = self.displayWeights[feature]
             proj = self.displayProjections[feature]
             self.parameters[weights.indices] = np.log(np.maximum(proj.Data, self.priorDisplays)) - logNbDisplay
@@ -117,7 +115,7 @@ class AggMRFModel(BaseAggModel):
     def prepareFit(self):
         self.setProjections()  # building all weights and projections now
         self.setWeights()
-        self.setActiveFeatures(self.activeFeatures)  # keeping only those active at the beginning
+        self.setFeatures(self.features)  # keeping only those active at the beginning
         self.initParameters()
         if self.sparkSession is not None:
             self.samples = self.buildSamplesRddFromSampleSet(self.samples)
@@ -125,11 +123,10 @@ class AggMRFModel(BaseAggModel):
         return
 
     def isActive(self, v):
-        return all([x in self.activeFeatures for x in v.split("&")])
+        return all([x in self.features for x in v.split("&")])
 
-    def setActiveFeatures(self, activeFeatures):
-        self.features = activeFeatures
-        self.activeFeatures = activeFeatures
+    def setFeatures(self, features: List[int]):
+        self.features = features
         self.displayProjections = {v: f for (v, f) in self.allDisplayProjections.items() if self.isActive(v)}
         self.displayWeights = {v: f for (v, f) in self.allDisplayWeights.items() if self.isActive(v)}
         self.clickProjections = {v: f for (v, f) in self.allClickProjections.items() if self.isActive(v)}
