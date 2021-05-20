@@ -1,9 +1,9 @@
-from pytest import fixture
-import pandas as pd
 import numpy as np
+import pandas as pd
+from pytest import fixture
 
+from aggregated_models.agg_mrf_model import AggMRFModel, AggMRFModelParams
 from aggregated_models.aggdataset import AggDataset
-from aggregated_models.agg_mrf_model import AggMRFModel
 
 
 @fixture(scope="module")
@@ -70,16 +70,15 @@ def test_agg_mrf_model_runs_on_fit(agg_data: AggDataset):
     regulL2 = 16
     nbSamples = 10000
     nbIter = 50
-    memMrf = AggMRFModel(
-        agg_data,
-        agg_data.features,
-        exactComputation=False,
-        clicksCfs="*&*",
-        displaysCfs="*&*",
+    params = AggMRFModelParams(
         nbSamples=nbSamples,
         regulL2=1.0,
         regulL2Click=regulL2,
+        clicksCfs="*&*",
+        displaysCfs="*&*",
         sampleFromPY0=True,
         maxNbRowsPerSlice=50,
+        exactComputation=False,
     )
+    memMrf = AggMRFModel(agg_data, agg_data.features, params)
     memMrf.fit(nbIter)

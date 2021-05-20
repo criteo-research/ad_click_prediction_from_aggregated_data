@@ -1,10 +1,15 @@
-import pytest
-import pandas as pd
 import getpass
-from thx.hadoop import spark_config_builder
-from aggregated_models.validation import MetricsComputer, SparkMetricsComputer
-from aggregated_models.aggdataset import AggDataset
 import uuid
+from pathlib import Path
+
+import pandas as pd
+import pytest
+from thx.hadoop import spark_config_builder
+
+from aggregated_models.aggdataset import AggDataset
+from aggregated_models.validation import MetricsComputer, SparkMetricsComputer
+
+TESTS_PATH = Path(__file__).parent.absolute()
 
 
 @pytest.fixture(scope="session")
@@ -23,8 +28,8 @@ def spark_session():
 
 class ModelTestData:
     def __init__(self, spark_session=None):
-        self.train = pd.read_parquet("./tests/resources/small_train.parquet")
-        self.valid = pd.read_parquet("./tests/resources/small_valid.parquet")
+        self.train = pd.read_parquet(TESTS_PATH / "resources/small_train.parquet")
+        self.valid = pd.read_parquet(TESTS_PATH / "resources/small_valid.parquet")
         self.features = ["cat1", "cat4", "cat6", "cat8", "cat9"]
         self.label = "click"
 

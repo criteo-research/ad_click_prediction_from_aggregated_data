@@ -1,14 +1,13 @@
-from pytest import approx, fixture
-from aggregated_models.agg_mrf_model import AggMRFModel
+from pytest import approx
+
+from aggregated_models.agg_mrf_model import AggMRFModel, AggMRFModelParams
 
 
 def test_agg_mrf_model(model_data):
     regulL2 = 16
     nbSamples = 10000
     nbIter = 50
-    memMrf = AggMRFModel(
-        model_data.aggdata,
-        model_data.features,
+    params = AggMRFModelParams(
         exactComputation=False,  # Using Gibbs Sampling.  actualy exact=True is broken in latest code
         clicksCfs="*&*",  # crossfeatures used by P(Y|X) part of the model
         displaysCfs="*&*",  # crossfeatures used by P(X) part of the model. Here, all pairs + all single .
@@ -18,6 +17,7 @@ def test_agg_mrf_model(model_data):
         sampleFromPY0=True,
         maxNbRowsPerSlice=100,
     )
+    memMrf = AggMRFModel(model_data.aggdata, model_data.features, params)
     memMrf.fit(nbIter, 0.05)
     assert model_data.validator.getLLH(memMrf, model_data.train) == approx(0.057, rel=0.1)
     assert model_data.validator.getLLH(memMrf, model_data.valid) == approx(0.057, rel=0.1)

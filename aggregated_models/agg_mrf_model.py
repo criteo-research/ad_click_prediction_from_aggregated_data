@@ -1,10 +1,13 @@
+import json
 import logging
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 import pyspark.sql as ps
 import pyspark.sql.functions as F
+from dataclasses import dataclass, asdict
 from joblib import Parallel, delayed
 from pyspark.sql import SparkSession
 
@@ -16,55 +19,63 @@ from aggregated_models.aggdataset import AggDataset
 from aggregated_models.baseaggmodel import BaseAggModel, WeightsSet
 from aggregated_models.featuremappings import SingleFeatureMapping, CrossFeaturesMapping
 from aggregated_models.mrf_helpers import ComputeRWpred, fastGibbsSample, fastGibbsSampleFromPY0
+from aggregated_models.noiseDistributions import GaussianNoise
 
 _log = logging.getLogger(__name__)
+
+
+@dataclass
+class AggMRFModelParams:
+    priorDisplays: float = 0.5  # used for initialization of weights associated to  "unknown modalities"
+    exactComputation: bool = False  #
+    nbSamples: float = 1e5  # Nb internal Gibbs samples
+    regulL2: float = 1.0  # regularization parameter on 'mu'
+    regulL2Click: Optional[float] = None  # regularization parameter on the parameters of P(Y|X). by default,
+    # same value as regulL2
+    displaysCfs: str = "*&*"
+    clicksCfs: str = "*&*"
+    noiseStandardDev: Optional[float] = None
+    sampleFromPY0: bool = False
+    maxNbRowsPerSlice: int = 50
 
 
 class AggMRFModel(BaseAggModel):
     def __init__(
         self,
         aggdata: AggDataset,
-        features: List[int],
-        priorDisplays: float = 0.5,  # used for initialization of weights associated to  "unknown modalities"
-        exactComputation: bool = False,  #
-        nbSamples: float = 1e5,  # Nb internal Gibbs samples
-        regulL2: float = 1.0,  # regularization parameter on 'mu'
-        regulL2Click: Optional[float] = None,  # regularization parameter on the parameters of P(Y|X). by default,
-        # same value as regulL2
-        displaysCfs: str = "*&*",
-        clicksCfs: str = "*&*",
-        noiseDistribution=None,  # Parameters of the noise on the aggregated data (if any)   ,
-        sampleFromPY0: bool = False,
-        maxNbRowsPerSlice: int = 50,
+        features: List[str],
+        config_params: AggMRFModelParams,
         sparkSession: Optional[SparkSession] = None,
     ):
         super().__init__(aggdata, features)
-        self.priorDisplays = priorDisplays
-        self.exactComputation = exactComputation
-        self.nbSamples = int(nbSamples) if not exactComputation else None
+        self.config_params = config_params
+        self.priorDisplays = config_params.priorDisplays
+        self.exactComputation = config_params.exactComputation
+        self.nbSamples = int(config_params.nbSamples) if not config_params.exactComputation else None
 
-        self.regulL2 = regulL2
+        self.regulL2 = config_params.regulL2
 
-        self.displaysCfs = featureprojections.parseCFNames(self.features, displaysCfs)
-        self.clicksCfs = featureprojections.parseCFNames(self.features, clicksCfs)
+        self.displaysCfs = featureprojections.parseCFNames(self.features, config_params.displaysCfs)
+        self.clicksCfs = featureprojections.parseCFNames(self.features, config_params.clicksCfs)
 
         # batch Size for the Gibbs sampler. (too high => memory issues on large models)
-        self.maxNbRowsPerSlice = maxNbRowsPerSlice
-        self.noiseDistribution = noiseDistribution
-        self.sampleFromPY0 = sampleFromPY0
+        self.maxNbRowsPerSlice = config_params.maxNbRowsPerSlice
+        self.noiseDistribution = (
+            GaussianNoise(config_params.noiseStandardDev) if config_params.noiseStandardDev else None
+        )
+        self.sampleFromPY0 = config_params.sampleFromPY0
         # Compute Monte Carlo by sampling Y  (no good reason to do that ? )
         self.decollapseGibbs = False
         self.nbGibbsSteps = 1
         self.RaoBlackwellization = False
-        self.regulL2Click = regulL2Click
-        if regulL2Click is None:
-            self.regulL2Click = regulL2
+        self.regulL2Click = config_params.regulL2Click
+        if config_params.regulL2Click is None:
+            self.regulL2Click = config_params.regulL2
         self.lastPredict = None
         self.sparkSession = sparkSession
         # Preparing weights, parameters, samples ...
 
         self.modifiedGradient = False
-
         self.prepareFit()
 
     def setProjections(self):
@@ -484,23 +495,50 @@ class AggMRFModel(BaseAggModel):
     # Saving parameters and samples.
     # Warning: Not saving featuremappings,
     # would not work if instanciated from a different sample of the same dataset.
-    def save(self, name):
-        np.save(name + "_params", self.parameters)
+    def save(self, base_local_dir: str, base_hdfs_dir: Optional[str]):
+        base_local_path = Path(base_local_dir)
+        base_local_path.mkdir(parents=True, exist_ok=True)
+
+        with open(base_local_path / "config_params.json", "w") as config_fp:
+            json.dump(asdict(self.config_params), config_fp)
+
+        with open(base_local_path / "aggdata", "wb") as aggdata_fp:
+            self.aggdata.dump(aggdata_fp)
+
+        np.save(str(base_local_path / "parameters"), self.parameters)
+
         if type(self.samples) is SampleRdd:
-            data = np.array(self.samples.rddSamples.collect()).transpose()
+            if not base_hdfs_dir:
+                raise ValueError(
+                    "if you pass spark session base_hdfs_dir parameter is needed to save the samples on " "hdfs"
+                )
+            self.samples.rddSamples.map(lambda x: x.tolist()).toDF().write.mode("overwrite").parquet(
+                base_hdfs_dir + "/samples"
+            )
         else:
-            data = self.samples.data
-        np.save(name + "_samples", data)
+            np.save(str(base_local_path / "samples"), self.samples.columns)
 
-    def load(self, name):
-        extension = ".npy"
-        data = np.load(name + "_samples" + extension)
+    @staticmethod
+    def load(
+        base_local_dir: str,
+        base_hdfs_dir: Optional[str] = None,
+        spark_session: Optional[SparkSession] = None,
+    ):
+        base_local_path = Path(base_local_dir)
+        with open(base_local_path / "config_params.json", "r") as config_fp:
+            config_params = AggMRFModelParams(**json.load(config_fp))
 
-        if type(self.samples) is SampleRdd:
-            self.samples.rddSamples.unpersist()
-            self.samples.rddSamples = self.sparkSession.sparkContext.parallelize(data.transpose())
+        with (base_local_path / "aggdata").open("rb") as aggdata_fp:
+            agg_dataset = AggDataset.load(aggdata_fp)
+
+        model = AggMRFModel(agg_dataset, agg_dataset.features, config_params=config_params, sparkSession=spark_session)
+        params = np.load(str(base_local_path / "parameters.npy"))
+        model.setparameters(params)
+
+        if spark_session:
+            if not base_hdfs_dir:
+                raise ValueError("if you pass spark session base_hdfs_dir parameter is needed to retrieve the samples")
+            model.samples.rddSamples = spark_session.read.parquet(base_hdfs_dir + "/samples").rdd.map(np.array)
         else:
-            self.samples.data = data
-
-        params = np.load(name + "_params" + extension)
-        self.setparameters(params)
+            model.samples.columns = np.load(str(base_local_path / "samples.npy"))
+        return model

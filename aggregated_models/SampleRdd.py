@@ -1,16 +1,10 @@
-import pandas as pd
-import numpy as np
-import random
-import bisect
 import itertools
 import operator
-from collections import Counter
-from aggregated_models.featuremappings import (
-    CrossFeaturesMapping,
-    SingleFeatureMapping,
-)
-from aggregated_models.mrf_helpers import gibbsOneSampleFromPY0, oneHotEncode
 
+import numpy as np
+from pyspark.rdd import PipelinedRDD
+
+from aggregated_models.mrf_helpers import gibbsOneSampleFromPY0, oneHotEncode
 
 MAXMODALITIES = 1e7
 
@@ -74,7 +68,9 @@ class SampleRdd:
         self.prediction = None
         self.sparkSession = sparkSession
         self.broadcast_history = list()
-        self.rddSamples = sparkSession.sparkContext.parallelize(data, numSlices=nbSamples / maxNbRowsPerSlice)
+        self.rddSamples: PipelinedRDD = sparkSession.sparkContext.parallelize(
+            data, numSlices=nbSamples / maxNbRowsPerSlice
+        )
         self.variableMRFParameters = sparkSession.sparkContext.broadcast(VariableMRFParameters(model.parameters))
         (exportedDisplayWeights, exportedClickWeights, modalitiesByVarId, _) = model.exportWeightsAll()
         self.constantMRFParameters = sparkSession.sparkContext.broadcast(

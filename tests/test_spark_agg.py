@@ -1,10 +1,9 @@
-from pytest import fixture
-
 import numpy as np
 from pyspark.sql.session import SparkSession
+from pytest import fixture
 
+from aggregated_models.agg_mrf_model import AggMRFModel, AggMRFModelParams
 from aggregated_models.aggdataset import AggDataset
-from aggregated_models.agg_mrf_model import AggMRFModel
 
 
 @fixture(scope="module")
@@ -71,9 +70,7 @@ def test_in_memory_mrf_model_runs_on_fit(agg_data: AggDataset):
     regulL2 = 16
     nbSamples = 10000
     nbIter = 3
-    memMrf = AggMRFModel(
-        agg_data,
-        agg_data.features,
+    params = AggMRFModelParams(
         exactComputation=False,
         clicksCfs="*&*",
         displaysCfs="*&*",
@@ -83,6 +80,7 @@ def test_in_memory_mrf_model_runs_on_fit(agg_data: AggDataset):
         sampleFromPY0=True,
         maxNbRowsPerSlice=50,
     )
+    memMrf = AggMRFModel(agg_data, agg_data.features, params)
     memMrf.fit(nbIter)
 
 
@@ -90,9 +88,7 @@ def test_rdd_mrf_model_runs_on_spark_fit(spark_session, agg_data: AggDataset):
     regulL2 = 16
     nbSamples = 10000
     nbIter = 3
-    rddMrf = AggMRFModel(
-        agg_data,
-        agg_data.features,
+    params = AggMRFModelParams(
         exactComputation=False,
         clicksCfs="*&*",
         displaysCfs="*&*",
@@ -101,6 +97,11 @@ def test_rdd_mrf_model_runs_on_spark_fit(spark_session, agg_data: AggDataset):
         regulL2Click=regulL2,
         sampleFromPY0=True,
         maxNbRowsPerSlice=1000,
+    )
+    rddMrf = AggMRFModel(
+        agg_data,
+        agg_data.features,
+        params,
         sparkSession=spark_session,
     )
     rddMrf.fit(nbIter)
