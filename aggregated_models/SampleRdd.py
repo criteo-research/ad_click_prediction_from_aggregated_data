@@ -1,48 +1,21 @@
 import itertools
 import operator
+from typing import List, Optional
 
 import numpy as np
-from pyspark.rdd import PipelinedRDD
+from pyspark import Broadcast
+from pyspark.rdd import RDD
+import bisect
 
-from aggregated_models.mrf_helpers import gibbsOneSampleFromPY0, oneHotEncode
+from pyspark.sql.session import SparkSession
+from aggregated_models.mrf_helpers import (
+    ConstantMRFParameters,
+    VariableMRFParameters,
+    gibbsOneSampleFromPY0,
+    oneHotEncode,
+)
 
 MAXMODALITIES = 1e7
-
-
-class VariableMRFParameters:
-    def __init__(self, parameters):
-        self.parameters = parameters
-
-
-class ConstantMRFParameters:
-    def __init__(
-        self,
-        nbSamples,
-        nbParameters,
-        sampleFromPY0,
-        explosedDisplayWeights,
-        explosedClickWeights,
-        displayWeights,
-        clickWeights,
-        modalitiesByVarId,
-        muIntercept,
-        lambdaIntercept,
-    ):
-        self.nbSamples = nbSamples
-        self.nbParameters = nbParameters
-        self.sampleFromPY0 = sampleFromPY0
-        self.explosedDisplayWeights = explosedDisplayWeights
-        self.explosedClickWeights = explosedClickWeights
-        self.displayWeights = displayWeights
-        self.clickWeights = clickWeights
-        self.modalitiesByVarId = modalitiesByVarId
-        self.muIntercept = muIntercept
-        self.lambdaIntercept = lambdaIntercept
-        if self.sampleFromPY0:
-            self.norm = np.exp(muIntercept)
-        else:
-            self.norm = np.exp(muIntercept) * (1 + np.exp(lambdaIntercept))
-        self.enoclick = (1 + np.exp(self.lambdaIntercept)) * np.exp(self.muIntercept) / self.nbSamples
 
 
 # set of samples of 'x' used internally by AggMRFModel
@@ -50,13 +23,14 @@ class SampleRdd:
     def __init__(
         self,
         projections,
-        model,
         sparkSession,
-        nbSamples=None,
+        constantModelParameters: ConstantMRFParameters = None,
+        variableModelParameters: VariableMRFParameters = None,
+        nbSamples=100,
         decollapseGibbs=False,
         sampleFromPY0=False,
-        data=None,
         maxNbRowsPerSlice=50,
+        data=None,
     ):
         self.projections = projections
         self.decollapseGibbs = decollapseGibbs
@@ -65,36 +39,55 @@ class SampleRdd:
         self.featurenames = [f.Name for f in self.features]
         self.Size = nbSamples
         self.allcrossmods = False
-        self.prediction = None
-        self.sparkSession = sparkSession
-        self.broadcast_history = list()
-        self.rddSamples: PipelinedRDD = sparkSession.sparkContext.parallelize(
-            data, numSlices=nbSamples / maxNbRowsPerSlice
-        )
-        self.variableMRFParameters = sparkSession.sparkContext.broadcast(VariableMRFParameters(model.parameters))
-        (exportedDisplayWeights, exportedClickWeights, modalitiesByVarId, _) = model.exportWeightsAll()
-        self.constantMRFParameters = sparkSession.sparkContext.broadcast(
-            ConstantMRFParameters(
-                self.Size,
-                model.parameters.size,
-                self.sampleFromPY0,
-                exportedDisplayWeights,
-                exportedClickWeights,
-                model.displayWeights,
-                model.clickWeights,
-                modalitiesByVarId,
-                model.muIntercept,
-                model.lambdaIntercept,
-            )
+        self.prediction: Optional[np.ndarray] = None
+        self.sparkSession: SparkSession = sparkSession
+        self.broadcast_history: List[Broadcast] = list()
+        if data is not None:
+            self.rddSamples: RDD = sparkSession.sparkContext.parallelize(data, numSlices=nbSamples / maxNbRowsPerSlice)
+        else:
+            self.rddSamples = self._buildRddSamples(maxNbRowsPerSlice)
+        if constantModelParameters is not None and variableModelParameters is not None:
+            self._broadcast_parameters(constantModelParameters, variableModelParameters)
+
+    def _broadcast_parameters(self, constantModelParameters, variableModelParameters):
+        self.variableMRFParameters = self.sparkSession.sparkContext.broadcast(variableModelParameters)
+        self.constantMRFParameters = self.sparkSession.sparkContext.broadcast(constantModelParameters)
+
+    def _buildRddSamples(self, maxNbRowsPerSlice: int) -> RDD:
+        dummySampleRdd = self.sparkSession.sparkContext.parallelize(
+            np.ones(self.Size), numSlices=self.Size / maxNbRowsPerSlice
         )
 
-    def get_rows(self):
+        vectorSize = len(self.projections)
+
+        cum_probas_list = list()
+        for projection in self.projections:
+            counts = projection.Data
+            probas = counts / sum(counts)
+            cumprobas = np.cumsum(probas)
+            cum_probas_list.append(cumprobas)
+
+        cumprobas_broadcast = self.sparkSession.sparkContext.broadcast(cum_probas_list)
+        self.broadcast_history.append(cumprobas_broadcast)
+
+        def _buildIndependant(row):
+            cumprobas = cumprobas_broadcast.value
+            rand = np.random.random_sample(vectorSize)
+            return np.array([bisect.bisect(cumprobas[i], r) for i, r in enumerate(rand)])
+
+        initializedSampleRdd = dummySampleRdd.map(_buildIndependant)
+        # caching before checkpoint, because checkpoint would trigger the computation twice.
+        initializedSampleRdd.cache()
+        initializedSampleRdd.checkpoint()
+        return initializedSampleRdd
+
+    def get_rows(self) -> np.ndarray:
         data = self.rddSamples.collect()
-        return np.vstack([d for d in data])
+        return np.array([d for d in data])
 
     def UpdateSampleWithGibbs(self, model):
         rddnew = self._updateSamplesWithGibbsRdd(model)
-        rddnew.cache()  # caching before checkpoint, because checkpoint would triger the computation twice.
+        rddnew.cache()  # caching before checkpoint, because checkpoint would trigger the computation twice.
         rddnew.checkpoint()
         rddnew.count()  # force compute before uncache
         self.rddSamples.unpersist()  # clean previous rdd
@@ -102,7 +95,7 @@ class SampleRdd:
         for k in self.broadcast_history:
             # after the checkpoint, we can safely delete old broadcasted parameters
             k.destroy()
-            self.broadcast_history = list()
+        self.broadcast_history = list()
 
     def _updateSamplesWithGibbsRdd(self, model):
         constantMRFParameters = self.constantMRFParameters

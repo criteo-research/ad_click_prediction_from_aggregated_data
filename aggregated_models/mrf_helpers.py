@@ -7,6 +7,42 @@ from numba import jit
 from aggregated_models import featuremappings
 
 
+class VariableMRFParameters:
+    def __init__(self, parameters):
+        self.parameters = parameters
+
+
+class ConstantMRFParameters:
+    def __init__(
+        self,
+        nbSamples,
+        nbParameters,
+        sampleFromPY0,
+        explosedDisplayWeights,
+        explosedClickWeights,
+        displayWeights,
+        clickWeights,
+        modalitiesByVarId,
+        muIntercept,
+        lambdaIntercept,
+    ):
+        self.nbSamples = nbSamples
+        self.nbParameters = nbParameters
+        self.sampleFromPY0 = sampleFromPY0
+        self.explosedDisplayWeights = explosedDisplayWeights
+        self.explosedClickWeights = explosedClickWeights
+        self.displayWeights = displayWeights
+        self.clickWeights = clickWeights
+        self.modalitiesByVarId = modalitiesByVarId
+        self.muIntercept = muIntercept
+        self.lambdaIntercept = lambdaIntercept
+        if self.sampleFromPY0:
+            self.norm = np.exp(muIntercept)
+        else:
+            self.norm = np.exp(muIntercept) * (1 + np.exp(lambdaIntercept))
+        self.enoclick = (1 + np.exp(self.lambdaIntercept)) * np.exp(self.muIntercept) / self.nbSamples
+
+
 @jit(nopython=True)
 def mybisect(a: np.ndarray, x):
     """Similar to bisect.bisect() or bisect.bisect_right(), from the built-in library."""

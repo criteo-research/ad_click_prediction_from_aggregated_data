@@ -153,7 +153,6 @@ class SampleSet:
         return crossmodalitiesdf
 
     def sampleIndepedent(self, nbSamples):
-        self.allcrossmods = False
         a = []
         for p in self.projections:
             counts = p.Data

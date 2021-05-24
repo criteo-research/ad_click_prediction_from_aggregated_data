@@ -13,12 +13,18 @@ from pyspark.sql import SparkSession
 
 from aggregated_models import Optimizers
 from aggregated_models import featureprojections
-from aggregated_models.SampleRdd import SampleRdd, VariableMRFParameters
+from aggregated_models.SampleRdd import SampleRdd
 from aggregated_models.SampleSet import SampleSet
 from aggregated_models.aggdataset import AggDataset
 from aggregated_models.baseaggmodel import BaseAggModel, WeightsSet
 from aggregated_models.featuremappings import SingleFeatureMapping, CrossFeaturesMapping
-from aggregated_models.mrf_helpers import ComputeRWpred, fastGibbsSample, fastGibbsSampleFromPY0
+from aggregated_models.mrf_helpers import (
+    ComputeRWpred,
+    VariableMRFParameters,
+    ConstantMRFParameters,
+    fastGibbsSample,
+    fastGibbsSampleFromPY0,
+)
 from aggregated_models.noiseDistributions import GaussianNoise
 
 _log = logging.getLogger(__name__)
@@ -96,15 +102,45 @@ class AggMRFModel(BaseAggModel):
         self.regulVector[self.offsetClicks :] = self.regulL2Click
 
     def buildSamples(self):
-        samples = SampleSet(
-            [self.displayProjections[feature] for feature in self.features],
-            self.nbSamples,
-            self.decollapseGibbs,
-            self.sampleFromPY0,
-            self.maxNbRowsPerSlice,
-        )
+        if self.sparkSession is None:
+            samples = SampleSet(
+                [self.displayProjections[feature] for feature in self.features],
+                self.nbSamples,
+                self.decollapseGibbs,
+                self.sampleFromPY0,
+                self.maxNbRowsPerSlice,
+            )
+        else:
+            variableMRFParameters, constantMRFParameters = self._get_mrf_parameters()
+            samples = SampleRdd(
+                [self.displayProjections[feature] for feature in self.features],
+                self.sparkSession,
+                constantMRFParameters,
+                variableMRFParameters,
+                self.nbSamples,
+                self.decollapseGibbs,
+                self.sampleFromPY0,
+                self.maxNbRowsPerSlice,
+            )
 
         return samples
+
+    def _get_mrf_parameters(self):
+        variableMRFParameters = VariableMRFParameters(self.parameters)
+        (exportedDisplayWeights, exportedClickWeights, modalitiesByVarId, _) = self.exportWeightsAll()
+        constantMRFParameters = ConstantMRFParameters(
+            self.nbSamples,
+            self.parameters.size,
+            self.sampleFromPY0,
+            exportedDisplayWeights,
+            exportedClickWeights,
+            self.displayWeights,
+            self.clickWeights,
+            modalitiesByVarId,
+            self.muIntercept,
+            self.lambdaIntercept,
+        )
+        return variableMRFParameters, constantMRFParameters
 
     def setSamples(self):
         self.samples = self.buildSamples()
@@ -128,15 +164,14 @@ class AggMRFModel(BaseAggModel):
         self.setWeights()
         self.setFeatures(self.features)  # keeping only those active at the beginning
         self.initParameters()
-        if self.sparkSession is not None:
-            self.samples = self.buildSamplesRddFromSampleSet(self.samples)
+        self.setSamples()  # reseting data
         self.update()
         return
 
     def isActive(self, v):
         return all([x in self.features for x in v.split("&")])
 
-    def setFeatures(self, features: List[int]):
+    def setFeatures(self, features: List[str]):
         self.features = features
         self.displayProjections = {v: f for (v, f) in self.allDisplayProjections.items() if self.isActive(v)}
         self.displayWeights = {v: f for (v, f) in self.allDisplayWeights.items() if self.isActive(v)}
@@ -146,7 +181,6 @@ class AggMRFModel(BaseAggModel):
             [w.feature.Size for w in self.clickWeights.values()]
         )
         self.bestLoss = 9999999999999999.0
-        self.setSamples()  # reseting data
         self.setAggDataVector()
 
     def setparameters(self, x):
@@ -353,15 +387,17 @@ class AggMRFModel(BaseAggModel):
         self.updateSamplesWithGibbs(self.samples)
 
     def buildSamplesRddFromSampleSet(self, samples):
+        variableMRFParameters, constantMRFParameters = self._get_mrf_parameters()
         return SampleRdd(
             samples.projections,
-            self,
             self.sparkSession,
+            constantMRFParameters,
+            variableMRFParameters,
             samples.Size,
             samples.decollapseGibbs,
             samples.sampleFromPY0,
-            samples.get_rows(),
             self.maxNbRowsPerSlice,
+            samples.get_rows(),
         )
 
     def buildSamplesSetFromSampleRdd(self, samples):
