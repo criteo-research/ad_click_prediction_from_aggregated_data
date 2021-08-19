@@ -13,6 +13,7 @@ from aggregated_models.mrf_helpers import (
     VariableMRFParameters,
     gibbsOneSampleFromPY0,
     oneHotEncode,
+    blockedGibbsSampler_PY0,
 )
 
 MAXMODALITIES = 1e7
@@ -81,35 +82,119 @@ class SampleRdd:
         initializedSampleRdd.checkpoint()
         return initializedSampleRdd
 
-    def get_rows(self) -> np.ndarray:
+    def get_rows(self):
         data = self.rddSamples.collect()
         return np.array([d for d in data])
 
-    def UpdateSampleWithGibbs(self, model):
-        rddnew = self._updateSamplesWithGibbsRdd(model)
-        rddnew.cache()  # caching before checkpoint, because checkpoint would trigger the computation twice.
-        rddnew.checkpoint()
-        rddnew.count()  # force compute before uncache
-        self.rddSamples.unpersist()  # clean previous rdd
-        self.rddSamples = rddnew
+    def UpdateSampleWithGibbs(self, model, nbGibbsIter=1):
+
+        if nbGibbsIter > 0:
+            rddnew = self._runGibbsSampling(model, nbGibbsIter)
+            rddnew.cache()  # caching before checkpoint, because checkpoint would triger the computation twice.
+            rddnew.checkpoint()
+            rddnew.count()  # force compute before uncache
+            try:
+                self.rddSamples.unpersist()  # clean previous rdd
+            except:
+                print("error in self.rddSamples.unpersist() ")  # usually "Futures timed out..."
+
+            self.rddSamples = rddnew
+            self.cleanBroadcasts()
+
+    def cleanBroadcasts(self):
         for k in self.broadcast_history:
             # after the checkpoint, we can safely delete old broadcasted parameters
-            k.destroy()
+            try:
+                k.destroy()  # sometimes crashing with a "timeout". seems to happen when one of the nodes of the sesssion is having issues (memory or other ?)
+            except:
+                print("Failure while trying to destroy a broadcast")
         self.broadcast_history = list()
 
-    def _updateSamplesWithGibbsRdd(self, model):
+    def _runGibbsSampling(self, model, nbGibbsIter=1):
+        if self.sampleFromPY0:
+            return self._runGibbsSampling_fromPY0(model, nbGibbsIter)
+        else:
+            return self._runGibbsSampling_samplingY(model, nbGibbsIter)
+
+    def _runGibbsSampling_samplingY(self, model, nbGibbsIter=1):
         constantMRFParameters = self.constantMRFParameters
         variableMRFParameters = self.variableMRFParameters
 
-        def myfun_sampling_from_p_y0(sample):
-            new_sample = gibbsOneSampleFromPY0(
-                constantMRFParameters.value.explosedDisplayWeights,
-                constantMRFParameters.value.modalitiesByVarId,
-                variableMRFParameters.value.parameters,
-                sample,
-                1,
-            )
-            return new_sample
+        rdd_x_expdotprod = self._compute_rdd_expdotproducts(model)
+
+        def sampleY(x_expdotprod):
+            x, expdotprod = x_expdotprod
+            py = expdotprod / (1 + expdotprod)
+            y = 1 if py < np.random.random() else 0
+            return x, y
+
+        rdd_x_y = rdd_x_expdotprod.map(sampleY)
+
+        gibbsMaxNbModalities = model.gibbsMaxNbModalities
+        if gibbsMaxNbModalities > 1:
+
+            def _sampling(sample, parameters):
+                return blockedGibbsSampler_PY0(
+                    constantMRFParameters.value.explosedDisplayWeights,
+                    constantMRFParameters.value.modalitiesByVarId,
+                    parameters,
+                    sample,
+                    nbGibbsIter,
+                    gibbsMaxNbModalities,
+                )
+                return new_sample
+
+        else:
+
+            def _sampling(sample, parameters):
+                return gibbsOneSampleFromPY0(
+                    constantMRFParameters.value.explosedDisplayWeights,
+                    constantMRFParameters.value.modalitiesByVarId,
+                    parameters,
+                    sample,
+                    nbGibbsIter,
+                )
+
+        def myfun_sampling(sample_y):
+            sample, y = sample_y
+            if y == 0:
+                parameters = variableMRFParameters.value.parameters
+            else:
+                parameters = variableMRFParameters.value.parametersForPY1
+            return _sampling(sample, parameters)
+
+        return rdd_x_y.map(myfun_sampling)
+
+    def _runGibbsSampling_fromPY0(self, model, nbGibbsIter=1):
+        constantMRFParameters = self.constantMRFParameters
+        variableMRFParameters = self.variableMRFParameters
+
+        gibbsMaxNbModalities = model.gibbsMaxNbModalities
+        if gibbsMaxNbModalities > 1:
+
+            def myfun_sampling_from_p_y0(sample):
+                # new_sample = gibbsOneSampleFromPY0(
+                new_sample = blockedGibbsSampler_PY0(
+                    constantMRFParameters.value.explosedDisplayWeights,
+                    constantMRFParameters.value.modalitiesByVarId,
+                    variableMRFParameters.value.parameters,
+                    sample,
+                    nbGibbsIter,
+                    gibbsMaxNbModalities,
+                )
+                return new_sample
+
+        else:
+
+            def myfun_sampling_from_p_y0(sample):
+                new_sample = gibbsOneSampleFromPY0(
+                    constantMRFParameters.value.explosedDisplayWeights,
+                    constantMRFParameters.value.modalitiesByVarId,
+                    variableMRFParameters.value.parameters,
+                    sample,
+                    nbGibbsIter,
+                )
+                return new_sample
 
         return self.rddSamples.map(myfun_sampling_from_p_y0)
 
@@ -117,8 +202,8 @@ class SampleRdd:
         # Invalidating prediction because samples have changed
         self.prediction = None
 
-    def _compute_prediction(self, model, rdd_sample_enoclick_eclick_zi):
-        rdd_one_hot_index = self._convert_to_one_hot_index(model, rdd_sample_enoclick_eclick_zi)
+    def _compute_prediction(self, model, rdd_x_edisplay_eclick):
+        rdd_one_hot_index = self._convert_to_one_hot_index(model, rdd_x_edisplay_eclick)
         rdd_exploded = self._explode_one_hot_index(rdd_one_hot_index)
         projections = self._compute_prediction_projections(rdd_exploded).collectAsMap()
         z_on_z0 = projections[-1]
@@ -126,23 +211,24 @@ class SampleRdd:
         predict = np.zeros(model.parameters.size)
         indices = np.array(list(projections.keys()))
         values = np.array(list(projections.values()))
-        predict[indices] = values * self.Size / z_on_z0
+        predict[indices] = values
+        nbsamplesInAggdata = np.exp(model.muIntercept) * (1 + np.exp(model.lambdaIntercept))
+        predict *= nbsamplesInAggdata / z_on_z0
         return predict
 
     def PredictInternal(self, model):
         # here we only need to broadcast model parameters and collect all broadcast
         if self.variableMRFParameters is not None:
             self.broadcast_history.append(self.variableMRFParameters)
-        self.variableMRFParameters = self.sparkSession.sparkContext.broadcast(VariableMRFParameters(model.parameters))
+        self.variableMRFParameters = self.sparkSession.sparkContext.broadcast(VariableMRFParameters(model))
         # Invalidating prediction because parameters have changed
         self.prediction = None
 
     def GetPrediction(self, model):
         if self.prediction is None:
             rdd_sample_expdotproducts = self._compute_rdd_expdotproducts(model)
-            rdd_sample_weights_expdotproducts = self._compute_weights(model, rdd_sample_expdotproducts)
-            rdd_sample_enoclick_eclick_zi = self._compute_enoclick_eclick_zi(model, rdd_sample_weights_expdotproducts)
-            self.prediction = self._compute_prediction(model, rdd_sample_enoclick_eclick_zi)
+            rdd_x_edisplay_eclick = self._compute_edisplay_eclick(model, rdd_sample_expdotproducts)
+            self.prediction = self._compute_prediction(model, rdd_x_edisplay_eclick)
         return self.prediction
 
     def _compute_rdd_expdotproducts(self, model):
@@ -150,92 +236,54 @@ class SampleRdd:
         Input: RDD containing tuple x
             x: vector with F features
 
-        Output:  RDD containing tuple x,w,expmu,explambda
+        Output:  RDD containing tuple x,w,explambda
             x: vector with F features
-            expmu: exp of dotproducts for display parameters
             explambda: expo of dotproducts for clicks parameters
         """
         constantMRFParameters = self.constantMRFParameters
         variableMRFParameters = self.variableMRFParameters
 
         def expdotproducts(x):
-            mus = 0
             lambdas = 0
-            for w in constantMRFParameters.value.displayWeights.values():
-                mus += variableMRFParameters.value.parameters[w.feature.Values_(x) + w.offset]
             for w in constantMRFParameters.value.clickWeights.values():
                 lambdas += variableMRFParameters.value.parameters[w.feature.Values_(x) + w.offset]
-            expmu = np.exp(mus + constantMRFParameters.value.muIntercept)
-            explambda = expmu * np.exp(lambdas + constantMRFParameters.value.lambdaIntercept)
-            return x, expmu, explambda
+            explambda = np.exp(lambdas + constantMRFParameters.value.lambdaIntercept)
+            return x, explambda
 
         return self.rddSamples.map(expdotproducts)
 
-    def _compute_weights(self, model, rdd_x_expdotproducts):
+    def _compute_edisplay_eclick(self, model, rdd_sample_expdotproducts):
         """
-        Input: RDD containing tuple x,w,expmu,explambda
+        Input: RDD containing tuple x,explambda
             x: vector with F features
-            w: vector of K weights
-            expmu: exp of dotproducts for display parameters
-            explambda: exp of dotproducts for clicks parameters
-
-        Output: RDD containing tuple x,w,expmu,explambda
-            x: vector with F features
-            w: udpated weights from prediction
-            expmu: exp of dotproducts for display parameters
-            explambda: exp of dotproducts for clicks parameters
-        """
-        constantMRFParameters = self.constantMRFParameters
-
-        def _computeWeightFromPY0(x_exp_mu_lambda):
-            x, expmu, explambda = x_exp_mu_lambda
-            weights = constantMRFParameters.value.norm / expmu / constantMRFParameters.value.nbSamples
-            return x, weights, expmu, explambda
-
-        def _computeWeight(x_exp_mu_lambda):
-            x, expmu, explambda = x_exp_mu_lambda
-            weights = constantMRFParameters.value.norm / (expmu + explambda) / constantMRFParameters.value.nbSamples
-            return x, weights, expmu, explambda
-
-        if self.sampleFromPY0:
-            return rdd_x_expdotproducts.map(_computeWeightFromPY0)
-        else:
-            return rdd_x_expdotproducts.map(_computeWeight)
-
-    def _compute_enoclick_eclick_zi(self, model, rdd_x_weights_expdotproducts):
-        """
-        Input: RDD containing tuple x,w,expmu,explambda
-            x: vector with F features
-            w: weight
-            expmu: exp of dotproducts for display parameters
             explambda: expo of dotproducts for clicks parameters
 
-        Output: RDD containing tuple x,w,enoclick,eclick,zi
+        Output: RDD containing tuple x,edisplay,eclick
             x: vector with F features
-            enoclick: sample expectation of display | no click
+            edisplay: sample expectation of display
             eclick: sample expectation of display | click
-            zi: Term used to compute P(Y)
         """
         # x, expmu, explambda
         constantMRFParameters = self.constantMRFParameters
 
-        def _computePDisplays(x_weight_mu_lambda):
-            x, weights, expmu, explambda = x_weight_mu_lambda
-            enoclick = expmu * weights
-            eclick = explambda * weights
-            zi = (1 + explambda / expmu).sum()
-            if constantMRFParameters.value.sampleFromPY0:  # correct importance weigthing formula
-                eclick *= 1 + np.exp(constantMRFParameters.value.lambdaIntercept)
-                enoclick *= 1 + np.exp(constantMRFParameters.value.lambdaIntercept)
-            return x, enoclick, eclick, zi
+        def _computePDisplays(x_explambda):
+            x, explambda = x_explambda
+            return x, 1, explambda / (1 + explambda)
 
-        return rdd_x_weights_expdotproducts.map(_computePDisplays)
+        def _computePDisplaysFromPY0(x_explambda):
+            x, explambda = x_explambda
+            return x, 1 + explambda, explambda
 
-    def _convert_to_one_hot_index(self, model, rdd_x_enoclick_eclick_zi):
+        if self.sampleFromPY0:
+            return rdd_sample_expdotproducts.map(_computePDisplaysFromPY0)
+        else:
+            return rdd_sample_expdotproducts.map(_computePDisplays)
+
+    def _convert_to_one_hot_index(self, model, rdd_x_edisplay_eclick):
         """
-        Input: RDD containing tuple x,enoclick,eclick,zi
+        Input: RDD containing tuple x,edisplay,eclick,zi
             x: vector with F features
-            enoclick: sample expectation of display | no click
+            edisplay: sample expectation of display
             eclick: sample expectation of display | click
             zi: Normalisation term used to compute final probability
 
@@ -246,17 +294,17 @@ class SampleRdd:
         """
         constantMRFParameters = self.constantMRFParameters
 
-        def convertForFlatMap(x_enoclick_eclick_zi):
-            x, enoclick, eclick, zi = x_enoclick_eclick_zi
+        def convertForFlatMap(x_edisplay_eclick):
+            x, edisplay, eclick = x_edisplay_eclick
             proj_display = oneHotEncode(x, constantMRFParameters.value.explosedDisplayWeights)
             proj_click = oneHotEncode(x, constantMRFParameters.value.explosedClickWeights)
             return (
-                (proj_display, enoclick + eclick),
+                (proj_display, edisplay),
                 (proj_click, eclick),
-                ([-1], zi),  # Keeping index '-1' to get sums of zi
+                ([-1], edisplay),  # Keeping index '-1' to get sums of edisplays for normalization
             )
 
-        return rdd_x_enoclick_eclick_zi.flatMap(convertForFlatMap)
+        return rdd_x_edisplay_eclick.flatMap(convertForFlatMap)
 
     def _explode_one_hot_index(self, rdd_one_hot_index):
         """
