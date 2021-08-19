@@ -427,7 +427,7 @@ class AggMRFModel(BaseAggModel):
     def exportWeights(self, weights):
         weightsByVar = {}
         for feature in self.features:
-            weightsByVar[feature] = [x for x in weights.values() if feature in x.feature.Name]
+            weightsByVar[feature] = [x for x in weights.values() if feature in x.feature.Name.split("&")]
         allcoefsv = []
         allcoefsv2 = []
         alloffsets = []
