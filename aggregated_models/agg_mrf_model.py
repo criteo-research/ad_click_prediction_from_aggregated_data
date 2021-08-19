@@ -280,7 +280,7 @@ class AggMRFModel(BaseAggModel):
     def updateSamplesWithGibbs(self, samples):
         if not samples.allcrossmods:
             # Not applying Gibbs if full samples was generated
-            samples.UpdateSampleWithGibbs(self)
+            samples.UpdateSampleWithGibbs(self, self.nbGibbsIter)
         samples.UpdateSampleWeights(self)
 
     def getPredictionsVector(self, samples):
