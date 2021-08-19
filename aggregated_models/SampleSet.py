@@ -37,16 +37,20 @@ class SampleSet:
             self.columns = self.sampleIndepedent(nbSamples)
 
         self.Size = len(self.columns[0])
-
         self.probaIndep = self.computeProbaIndep()
         self.probaSamples = self.probaIndep
         self._setweights()
+
         self.expmu = None
         self.explambda = None
         self.prediction = None
 
     def set_data_from_rows(self, rows):
         self.columns = rows.transpose()
+        self.Size = len(self.columns[0])
+        self.probaIndep = self.computeProbaIndep()
+        self.probaSamples = self.probaIndep
+        self._setweights()
 
     def get_rows(self):
         return self.columns.transpose()
@@ -107,7 +111,7 @@ class SampleSet:
     def GetPrediction(self, model):
         return self.prediction
 
-    def UpdateSampleWithGibbs(self, model):
+    def UpdateSampleWithGibbs(self, model, toto=0):
         self.columns = model.RunParallelGibbsSampler(self, maxNbRows=model.maxNbRowsPerSlice)
 
     def UpdateSampleWeights(self, model):
@@ -153,6 +157,7 @@ class SampleSet:
         return crossmodalitiesdf
 
     def sampleIndepedent(self, nbSamples):
+        self.allcrossmods = False
         a = []
         for p in self.projections:
             counts = p.Data
@@ -170,3 +175,11 @@ class SampleSet:
             counts = p.Data
             df["probaSample"] *= counts[df[p.feature.Name].values] / sum(counts)
         return df.probaSample.values
+
+    @property
+    def data(self):
+        return self.columns
+
+    @data.setter
+    def data(self, value):
+        self.columns = value
