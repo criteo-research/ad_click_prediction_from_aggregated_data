@@ -152,8 +152,10 @@ class SingleFeatureProjection(ISingleFeatureProjection):
         return F.col(self.Name) % F.lit(self.Modulo).alias(self.Name)
 
     def setBroadCast(self, sql_ctx):
+
+        modalitiesInt = [int(x) for x in self._modalities]  # Making sure with have 'int', not 'numpy.int64'
         self._modalities_broadcast = F.broadcast(
-            sql_ctx.createDataFrame([[index, x] for index, x in enumerate(self._modalities)], schema=("id", self.Name))
+            sql_ctx.createDataFrame([[index, x] for index, x in enumerate(modalitiesInt)], schema=("id", self.Name))
         ).persist()
 
     # replace initial modalities of features by modality index
