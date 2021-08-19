@@ -88,7 +88,7 @@ class LogisticModelWithCF:
         self.model.fit(dfWithCfs)
 
     def predict_proba(self, df):
-        dfWithCfs = self.featuresSet.transformDf(df)
+        dfWithCfs = self.featuresSet.transformDf(df, True)
         return self.model.predict_proba(dfWithCfs)
 
     def predictDF(self, df, pred_col_name: str):
