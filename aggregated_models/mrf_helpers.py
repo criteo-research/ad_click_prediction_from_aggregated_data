@@ -3,6 +3,7 @@ import bisect
 import random
 from joblib import Parallel, delayed
 from numba import jit
+import numba
 
 from aggregated_models import featuremappings
 
@@ -716,3 +717,142 @@ def oneHotEncode(x, explosedDisplayWeights):
             proj.append(crossmods)
 
     return np.unique(np.array(proj, np.int32))
+
+
+@jit(nopython=True)
+def batchVariables(featureSizes, maxNbModalities):
+    shuffledFeatures = np.arange(0, len(featureSizes))
+    np.random.shuffle(shuffledFeatures)
+    batches = [
+        [shuffledFeatures[0]]
+    ]  # Putting first variable in first batch to avoid instanciating empty list (makes numba unhappy)
+    varids = batches[0]
+    nbvarsInBatch = 1
+    nbmodalities = featureSizes[shuffledFeatures[0]]
+    for fid in shuffledFeatures[1:]:
+        nbmodalities *= featureSizes[fid]
+        nbvarsInBatch += 1
+        if nbmodalities > maxNbModalities and nbvarsInBatch > 1:
+            varids = [fid]
+            nbvarsInBatch = 1
+            nbmodalities = featureSizes[fid]
+            batches.append(varids)
+        else:
+            varids.append(fid)
+            nbvarsInBatch += 1
+
+    # print(batches , maxNbModalities , featureSizes)
+    return batches
+
+
+@jit(nopython=True)
+def buildAllModalities(varIds, modalitiesByVarId):
+
+    totalnbmodalities = 1
+    totalnbmodalitiesBeforeVar = []
+
+    for j in varIds:
+        totalnbmodalitiesBeforeVar.append(totalnbmodalities)
+        totalnbmodalities *= len(modalitiesByVarId[j])
+
+    allmodalities = np.zeros((len(varIds), totalnbmodalities), dtype=numba.int32)
+    j = 0
+    for varId in varIds:
+        modalities = modalitiesByVarId[varId]
+        nbmodalities = len(modalities)
+        nbcrossmodsBefore = totalnbmodalitiesBeforeVar[j]
+        k = 0
+        for nbVectorCopies in range(0, int(totalnbmodalities / nbmodalities / nbcrossmodsBefore)):
+            for m in modalities:
+                for nbcopies in range(0, nbcrossmodsBefore):
+                    allmodalities[j, k] = m
+                    k += 1
+        j += 1
+    return allmodalities
+
+
+@jit(nopython=True)
+def blockedGibbsSampler_PY0(exportedDisplayWeights, modalitiesByVarId, paramsVector, x, nbsteps, maxNbModalities):
+    (
+        allcoefsv,
+        allcoefsv2,
+        alloffsets,
+        allotherfeatureid,
+        allmodulos,
+    ) = exportedDisplayWeights
+
+    for step in np.arange(0, nbsteps):
+
+        batches = batchVariables([len(x) for x in modalitiesByVarId], maxNbModalities)
+
+        for featuresBatch in batches:
+            allmodalities = buildAllModalities(featuresBatch, modalitiesByVarId)
+
+            nbmodalities = allmodalities.shape[1]
+            mus = np.zeros(nbmodalities)
+
+            varIndexInBatch = -1
+            for varId in featuresBatch:
+                varIndexInBatch += 1
+                # data describing the different crossfeatures involving varId  in " K(x).mu"
+                # Those things are arrays, of len the number of crossfeatures involving varId.
+                disp_coefsv = allcoefsv[varId]
+                disp_coefsv2 = allcoefsv2[varId]
+                disp_offsets = alloffsets[varId]
+                disp_otherfeatureid = allotherfeatureid[varId]
+                disp_modulos = allmodulos[varId]
+
+                # array of possible modalities of varId
+                modalities = modalitiesByVarId[varId]
+                # Should be 0,1,2 ... NbModalities
+                # for each modality, compute P( modality | other features ) as exp( dotproduct)
+                # initializing dotproduct
+                # Computing the dotproducts
+                #  For each crossfeature containing varId
+                for j in np.arange(0, len(disp_coefsv)):
+
+                    varJ = disp_otherfeatureid[j]
+
+                    if j == 0:
+                        varJ = varId  # HACK because allotherfeatureid contains always 0 at index 0
+
+                    if varJ in featuresBatch:
+
+                        if varJ < varId:
+                            continue  # avoid applying crossweight twice
+
+                        indexOfVarJ_inBatch = 0
+                        while featuresBatch[indexOfVarJ_inBatch] != varJ:
+                            indexOfVarJ_inBatch += 1
+
+                        modulo = disp_modulos[j]
+                        modsJ = allmodalities[indexOfVarJ_inBatch] * disp_coefsv2[j]
+                        mods = allmodalities[varIndexInBatch] * disp_coefsv[j]
+                        # Computing crossfeatures
+                        # this is a matrix of shape (nbSamples, nbModalities of varId)
+                        crossmods = ((modsJ + mods) % modulo) + disp_offsets[j]
+                        # Adding crossfeature weight.
+                        mus += paramsVector[crossmods]
+
+                    else:
+                        modulo = disp_modulos[j]
+                        # let m a modality of feature varId, and m' a modality of the other feature
+                        #  Value of the crossfeature is " m *  disp_coefsv[j] + m' * disp_coefsv2[varJ]  "
+                        # values of m' in the data
+                        modsJ = x[disp_otherfeatureid[j]] * disp_coefsv2[j]
+                        # all possible modality m
+                        mods = allmodalities[varIndexInBatch] * disp_coefsv[j]
+                        # Computing crossfeatures
+                        # this is a matrix of shape (nbSamples, nbModalities of varId)
+                        crossmods = ((modsJ + mods) % modulo) + disp_offsets[j]
+                        # Adding crossfeature weight.
+                        mus += paramsVector[crossmods]
+
+            mus = np.exp(mus)
+            # Sampling now modality of varId
+            varnew = weightedSampleNUMBA(mus)
+            # updating the samples
+
+            for indexInBatch, fid in enumerate(featuresBatch):
+                x[fid] = allmodalities[indexInBatch][varnew]
+    return x
