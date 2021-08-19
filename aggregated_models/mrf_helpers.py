@@ -9,8 +9,14 @@ from aggregated_models import featuremappings
 
 
 class VariableMRFParameters:
-    def __init__(self, parameters):
-        self.parameters = parameters
+    def __init__(self, model):
+        self.parameters = model.parameters
+        if not model.sampleFromPY0:
+            self.parametersForPY1 = self.parameters.copy()
+            for f in model.clickWeights:
+                self.parametersForPY1[model.displayWeights[f].indices] += self.parametersForPY1[
+                    model.clickWeights[f].indices
+                ]
 
 
 class ConstantMRFParameters:
@@ -37,11 +43,6 @@ class ConstantMRFParameters:
         self.modalitiesByVarId = modalitiesByVarId
         self.muIntercept = muIntercept
         self.lambdaIntercept = lambdaIntercept
-        if self.sampleFromPY0:
-            self.norm = np.exp(muIntercept)
-        else:
-            self.norm = np.exp(muIntercept) * (1 + np.exp(lambdaIntercept))
-        self.enoclick = (1 + np.exp(self.lambdaIntercept)) * np.exp(self.muIntercept) / self.nbSamples
 
 
 @jit(nopython=True)

@@ -2,36 +2,40 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional
-
 import numpy as np
 import pandas as pd
 import pyspark.sql as ps
 import pyspark.sql.functions as F
 from dataclasses import dataclass, asdict
 from joblib import Parallel, delayed
-from pyspark.sql import SparkSession
-
-from aggregated_models import Optimizers
-from aggregated_models import featureprojections
-from aggregated_models.SampleRdd import SampleRdd
-from aggregated_models.SampleSet import SampleSet
-from aggregated_models.aggdataset import AggDataset
-from aggregated_models.baseaggmodel import BaseAggModel, WeightsSet
+from typing import Dict
 from aggregated_models.featuremappings import SingleFeatureMapping, CrossFeaturesMapping
+from aggregated_models.SampleSet import SampleSet
+from aggregated_models.SampleRdd import SampleRdd
+from aggregated_models import featureprojections
+from aggregated_models.baseaggmodel import BaseAggModel, WeightsSet
+from aggregated_models import Optimizers
 from aggregated_models.mrf_helpers import (
     ComputeRWpred,
-    VariableMRFParameters,
-    ConstantMRFParameters,
     fastGibbsSample,
     fastGibbsSampleFromPY0,
+    VariableMRFParameters,
+    ConstantMRFParameters,
 )
-from aggregated_models.noiseDistributions import GaussianNoise
+import pyspark.sql.functions as F
+import pyspark.sql as ps
+import logging
+from aggregated_models.aggdataset import AggDataset, FeaturesSet
+from thx.hadoop.spark_config_builder import create_remote_spark_session, SparkSession
+from aggregated_models.noiseDistributions import *
+
 
 _log = logging.getLogger(__name__)
 
 
 @dataclass
 class AggMRFModelParams:
+    features: List[str]
     priorDisplays: float = 0.5  # used for initialization of weights associated to  "unknown modalities"
     exactComputation: bool = False  #
     nbSamples: float = 1e5  # Nb internal Gibbs samples
@@ -40,39 +44,43 @@ class AggMRFModelParams:
     # same value as regulL2
     displaysCfs: str = "*&*"
     clicksCfs: str = "*&*"
-    noiseStandardDev: Optional[float] = None
     sampleFromPY0: bool = False
     maxNbRowsPerSlice: int = 50
+
+    nbGibbsIter: int = 1
+    modifiedGradient: bool = True
+    modifiedGradientForNoise: bool = False
+    gaussiansigma: float = 0
+    gibbsMaxNbModalities: int = 1
 
 
 class AggMRFModel(BaseAggModel):
     def __init__(
         self,
         aggdata: AggDataset,
-        features: List[str],
         config_params: AggMRFModelParams,
         sparkSession: Optional[SparkSession] = None,
     ):
-        super().__init__(aggdata, features)
+        super().__init__(aggdata, config_params.features)
         self.config_params = config_params
         self.priorDisplays = config_params.priorDisplays
         self.exactComputation = config_params.exactComputation
         self.nbSamples = int(config_params.nbSamples) if not config_params.exactComputation else None
 
         self.regulL2 = config_params.regulL2
+        self.gibbsMaxNbModalities = config_params.gibbsMaxNbModalities
 
         self.displaysCfs = featureprojections.parseCFNames(self.features, config_params.displaysCfs)
         self.clicksCfs = featureprojections.parseCFNames(self.features, config_params.clicksCfs)
 
+        self.allFeatures = self.features
+        self.activeFeatures = self.features
         # batch Size for the Gibbs sampler. (too high => memory issues on large models)
         self.maxNbRowsPerSlice = config_params.maxNbRowsPerSlice
-        self.noiseDistribution = (
-            GaussianNoise(config_params.noiseStandardDev) if config_params.noiseStandardDev else None
-        )
+        # self.noiseDistribution = config_params.noiseDistribution
         self.sampleFromPY0 = config_params.sampleFromPY0
         # Compute Monte Carlo by sampling Y  (no good reason to do that ? )
         self.decollapseGibbs = False
-        self.nbGibbsSteps = 1
         self.RaoBlackwellization = False
         self.regulL2Click = config_params.regulL2Click
         if config_params.regulL2Click is None:
@@ -81,8 +89,19 @@ class AggMRFModel(BaseAggModel):
         self.sparkSession = sparkSession
         # Preparing weights, parameters, samples ...
 
-        self.modifiedGradient = False
+        self.modifiedGradient = config_params.modifiedGradient
+        self.modifiedGradientForNoise = config_params.modifiedGradientForNoise
+
+        self.nbGibbsIter = config_params.nbGibbsIter
+        self.gaussiansigma = config_params.gaussiansigma
+        self.noiseDistribution = None
+        if self.gaussiansigma != 0:
+            self.noiseDistribution = GaussianNoise(self.gaussiansigma)
+
         self.prepareFit()
+        self.Data = self.DataRemoveNegatives
+
+        self.fitOnlyMu = False
 
     def setProjections(self):
         clickFeatures = self.features + self.clicksCfs
@@ -98,7 +117,12 @@ class AggMRFModel(BaseAggModel):
         self.parameters = np.zeros(offset)
         self.allClickWeights = self.clickWeights.copy()
         self.allDisplayWeights = self.displayWeights.copy()
-        self.regulVector = np.zeros(offset) + self.regulL2
+        self.setRegul(self.regulL2Click, self.regulL2)
+
+    def setRegul(self, regulL2Click, regulL2):
+        self.regulL2Click = regulL2Click
+        self.regulL2 = regulL2
+        self.regulVector = np.zeros(len(self.parameters)) + self.regulL2
         self.regulVector[self.offsetClicks :] = self.regulL2Click
 
     def buildSamples(self):
@@ -122,11 +146,10 @@ class AggMRFModel(BaseAggModel):
                 self.sampleFromPY0,
                 self.maxNbRowsPerSlice,
             )
-
         return samples
 
     def _get_mrf_parameters(self):
-        variableMRFParameters = VariableMRFParameters(self.parameters)
+        variableMRFParameters = VariableMRFParameters(self)
         (exportedDisplayWeights, exportedClickWeights, modalitiesByVarId, _) = self.exportWeightsAll()
         constantMRFParameters = ConstantMRFParameters(
             self.nbSamples,
@@ -299,22 +322,46 @@ class AggMRFModel(BaseAggModel):
         return self.recomputeGradient(self.samples)
 
     def recomputeGradient(self, samples):  # grad of loss
-        predictions = self.getPredictionsVector(samples)
-        gradient = -self.Data + predictions
 
-        if self.modifiedGradient:
-            displays = self.Data[: self.offsetClicks]
-            clicks = self.Data[self.offsetClicks :]
-            pdisplays = predictions[: self.offsetClicks]
-            pclicks = predictions[self.offsetClicks :]
-            ratio = (displays + 1) / (pdisplays + 1)
-            smoothedClickGrad = -clicks * np.minimum(1 / ratio, 1.0) + pclicks * np.minimum(ratio, 1.0)
-            gradient[self.offsetClicks :] = smoothedClickGrad
+        try:
+            predictions = self.getPredictionsVector(samples)
+        except:
+            print("exception while computing predictions. Retrying:")
+            predictions = self.getPredictionsVector(samples)
 
         if self.noiseDistribution is not None:
             noise = self.expectedNoise(predictions, samples)
-            gradient += noise  # - (data-noise - preds)
+        else:
+            noise = self.Data * 0
+
+        gradient = -self.Data + predictions + noise  # - (data-noise - preds)
+
+        if self.modifiedGradient:
+            for f in self.clickWeights:
+                wc = self.clickWeights[f]
+                wd = self.displayWeights[f]
+
+                displays = self.Data[wd.indices]
+                clicks = self.Data[wc.indices]
+                if self.modifiedGradientForNoise:
+                    displays -= noise[wd.indices]
+                    clicks -= noise[wc.indices]
+                    displays[displays < 0] = 0  # Should not happen ?
+                    clicks[clicks < 0] = 0
+                pdisplays = predictions[wd.indices]
+                pclicks = predictions[wc.indices]
+
+                ratio = (displays + 1) / (pdisplays + 1)
+                smoothedClickGrad = -clicks * np.minimum(1 / ratio, 1.0) + pclicks * np.minimum(ratio, 1.0)
+                gradient[wc.indices] = smoothedClickGrad
+
         gradient += 2 * self.parameters * self.regulVector
+
+        if self.fitOnlyMu:
+            for f in self.clickWeights:
+                wc = self.clickWeights[f]
+                gradient[wc.indices] = 0
+
         self.normgrad = sum(gradient * gradient)
         return gradient
 
@@ -501,7 +548,7 @@ class AggMRFModel(BaseAggModel):
 
         starts = np.arange(0, len(rows), maxNbRows)
         slices = [(rows[start : start + maxNbRows], samples.y[start : start + maxNbRows]) for start in starts]
-        nbGibbsSteps = self.nbGibbsSteps
+        nbGibbsSteps = self.nbGibbsIter
 
         def myfun(s):
             s = fastGibbsSample(
