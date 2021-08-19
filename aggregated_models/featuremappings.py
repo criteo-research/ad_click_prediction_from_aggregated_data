@@ -123,3 +123,69 @@ class CrossFeaturesMapping(IMapping):
         df[self._v1] = self.ValueVar1(df[self.Name])
         df[self._v2] = self.ValueVar2(df[self.Name]).astype(int)
         return df
+
+
+class TripletFeaturesMapping(IMapping):
+    _fid1: int
+    _fid2: int
+    _fid3: int
+    coefV2: int
+    coefV3: int
+    Size: int
+    Name: str
+    hashed: bool
+    _variables: List[str]
+
+    def __init__(
+        self,
+        feature_name_1: str,
+        feature_name_2: str,
+        feature_name_3: str,
+        feature_id_1: int,
+        feature_id_2: int,
+        feature_id_3: int,
+        size: int = 100_000,
+        coefV2: int = 73,
+        coefV3: int = 3301,
+        modulo: int = 100_000,
+        hashed: bool = True,
+    ):
+        self._variables = [feature_name_1, feature_name_2, feature_name_3]
+        self._v1 = feature_name_1
+        self._v2 = feature_name_2
+        self._v3 = feature_name_3
+        self._fid1 = feature_id_1
+        self._fid2 = feature_id_2
+        self._fid3 = feature_id_3
+        self.Name = GetCfName([f for f in self._variables])
+
+        self.Size = size
+        self.coefV2 = coefV2
+        self.coefV3 = coefV3
+        self.Modulo = modulo
+        self.hashed = hashed
+
+    def Values_(self, x: np.array) -> int:
+        return (x[self._fid1] + self.coefV2 * x[self._fid2] + self.coefV3 * x[self._fid3]) % self.Modulo
+
+    def Project_(self, x: np.ndarray, y: np.array) -> np.array:
+        x_values = self.Values_(x)
+        return projectNUMBA(x_values, y, self.Size)
+
+    def __repr__(self):
+        s = "x".join([n for n in self._variables])
+        if self.hashed:
+            return "h(" + s + ")"
+        return s
+
+    def ValueVar1(self, x):
+        return x % self.coefV2
+
+    def ValueVar2(self, x):
+        return (x - x % self.coefV2) / self.coefV2
+
+    def toDF(self):
+        df = pd.DataFrame({self.Name: np.arange(0, self.Size)})
+        df[self._v1] = self.ValueVar1(df[self.Name])
+        df[self._v2] = self.ValueVar2(df[self.Name]).astype(int)
+        return df
