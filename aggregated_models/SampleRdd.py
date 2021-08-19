@@ -30,7 +30,7 @@ class SampleRdd:
         nbSamples=100,
         decollapseGibbs=False,
         sampleFromPY0=False,
-        maxNbRowsPerSlice=50,
+        maxNbRowsPerSlice=500,
         data=None,
     ):
         self.projections = projections
