@@ -578,8 +578,15 @@ class AggMRFModel(BaseAggModel):
     # Saving parameters and samples.
     # Warning: Not saving featuremappings,
     # would not work if instanciated from a different sample of the same dataset.
-    def save(self, base_local_dir: str, base_hdfs_dir: Optional[str]):
+
+    def save(self, base_local_dir: str, base_hdfs_dir: Optional[str] = None):
+
+        if base_hdfs_dir is None:
+            base_hdfs_dir = "/tmp/a.gilotte/" + base_local_dir
+            print(base_hdfs_dir)
+
         base_local_path = Path(base_local_dir)
+        base_hdfs_path = Path(base_hdfs_dir)
         base_local_path.mkdir(parents=True, exist_ok=True)
 
         with open(base_local_path / "config_params.json", "w") as config_fp:
@@ -590,38 +597,50 @@ class AggMRFModel(BaseAggModel):
 
         np.save(str(base_local_path / "parameters"), self.parameters)
 
-        if type(self.samples) is SampleRdd:
-            if not base_hdfs_dir:
-                raise ValueError(
-                    "if you pass spark session base_hdfs_dir parameter is needed to save the samples on " "hdfs"
-                )
-            self.samples.rddSamples.map(lambda x: x.tolist()).toDF().write.mode("overwrite").parquet(
-                base_hdfs_dir + "/samples"
-            )
-        else:
-            np.save(str(base_local_path / "samples"), self.samples.columns)
+        try:
+            sparkdf = self.samples.rddSamples.map(lambda x: [int(i) for i in x]).toDF()
+            sparkdf.write.mode("overwrite").parquet(str(base_hdfs_path / "samples"))
+        except:
+            print("fail to save samples with spark. maybe running in memory?")
+            try:
+                np.save(str(base_local_path / "samples"), self.samples.columns)
+            except:
+                print("Failed to save samples")
 
     @staticmethod
     def load(
         base_local_dir: str,
         base_hdfs_dir: Optional[str] = None,
         spark_session: Optional[SparkSession] = None,
+        loadSamples: bool = True,
     ):
+
+        if base_hdfs_dir is None:
+            base_hdfs_dir = "/tmp/a.gilotte/" + base_local_dir
+
         base_local_path = Path(base_local_dir)
+        base_hdfs_path = Path(base_hdfs_dir)
+
         with open(base_local_path / "config_params.json", "r") as config_fp:
             config_params = AggMRFModelParams(**json.load(config_fp))
 
         with (base_local_path / "aggdata").open("rb") as aggdata_fp:
             agg_dataset = AggDataset.load(aggdata_fp)
 
-        model = AggMRFModel(agg_dataset, agg_dataset.features, config_params=config_params, sparkSession=spark_session)
+        model = AggMRFModel(agg_dataset, config_params=config_params, sparkSession=spark_session)
         params = np.load(str(base_local_path / "parameters.npy"))
         model.setparameters(params)
-
-        if spark_session:
-            if not base_hdfs_dir:
-                raise ValueError("if you pass spark session base_hdfs_dir parameter is needed to retrieve the samples")
-            model.samples.rddSamples = spark_session.read.parquet(base_hdfs_dir + "/samples").rdd.map(np.array)
-        else:
-            model.samples.columns = np.load(str(base_local_path / "samples.npy"))
+        if loadSamples:
+            if spark_session:
+                rdd = spark_session.read.parquet(str(base_hdfs_path / "samples")).rdd
+                model.samples.nbSamples = rdd.count()
+                nbpartitions = int(model.samples.nbSamples / model.maxNbRowsPerSlice)
+                print(f"nbsamples:{model.samples.nbSamples}   nbpartitions:{nbpartitions}")
+                model.samples.rddSamples = rdd.repartition(nbpartitions).map(list)
+            else:
+                samplesfile = str(base_local_path / "samples.npy")
+                try:
+                    model.samples.columns = np.load(samplesfile)
+                except:
+                    print("WARNING: could not load samples from " + samplesfile)
         return model
