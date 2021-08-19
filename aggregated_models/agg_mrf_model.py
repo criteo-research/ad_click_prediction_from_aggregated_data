@@ -176,7 +176,7 @@ class AggMRFModel(BaseAggModel):
         self.muIntercept = np.log(nbdisplays - nbclicks)
         self.lambdaIntercept = np.log(nbclicks) - self.muIntercept
         logNbDisplay = np.log(nbdisplays)
-        for feature in self.features:
+        for feature in self.activeFeatures:
             weights = self.displayWeights[feature]
             proj = self.displayProjections[feature]
             self.parameters[weights.indices] = np.log(np.maximum(proj.Data, self.priorDisplays)) - logNbDisplay
@@ -185,17 +185,18 @@ class AggMRFModel(BaseAggModel):
     def prepareFit(self):
         self.setProjections()  # building all weights and projections now
         self.setWeights()
-        self.setFeatures(self.features)  # keeping only those active at the beginning
+        self.setActiveFeatures(self.activeFeatures)  # keeping only those active at the beginning
         self.initParameters()
         self.setSamples()  # reseting data
         self.update()
         return
 
     def isActive(self, v):
-        return all([x in self.features for x in v.split("&")])
+        return all([x in self.activeFeatures for x in v.split("&")])
 
-    def setFeatures(self, features: List[str]):
-        self.features = features
+    def setActiveFeatures(self, activeFeatures):
+        self.features = activeFeatures
+        self.activeFeatures = activeFeatures
         self.displayProjections = {v: f for (v, f) in self.allDisplayProjections.items() if self.isActive(v)}
         self.displayWeights = {v: f for (v, f) in self.allDisplayWeights.items() if self.isActive(v)}
         self.clickProjections = {v: f for (v, f) in self.allClickProjections.items() if self.isActive(v)}
