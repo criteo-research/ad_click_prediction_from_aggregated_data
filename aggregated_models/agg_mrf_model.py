@@ -73,19 +73,16 @@ class AggMRFModel(BaseAggModel):
         self.displaysCfs = featureprojections.parseCFNames(self.features, config_params.displaysCfs)
         self.clicksCfs = featureprojections.parseCFNames(self.features, config_params.clicksCfs)
 
-        self.allFeatures = self.features
-        self.activeFeatures = self.features
         # batch Size for the Gibbs sampler. (too high => memory issues on large models)
         self.maxNbRowsPerSlice = config_params.maxNbRowsPerSlice
         # self.noiseDistribution = config_params.noiseDistribution
         self.sampleFromPY0 = config_params.sampleFromPY0
         # Compute Monte Carlo by sampling Y  (no good reason to do that ? )
-        self.decollapseGibbs = False
-        self.RaoBlackwellization = False
+
         self.regulL2Click = config_params.regulL2Click
         if config_params.regulL2Click is None:
             self.regulL2Click = config_params.regulL2
-        self.lastPredict = None
+
         self.sparkSession = sparkSession
         # Preparing weights, parameters, samples ...
 
@@ -103,20 +100,10 @@ class AggMRFModel(BaseAggModel):
 
         self.fitOnlyMu = False
 
-    def setProjections(self):
-        clickFeatures = self.features + self.clicksCfs
-        self.clickProjections = {feature: self.aggdata.aggClicks[feature] for feature in clickFeatures}
-        displayFeatures = self.features + self.displaysCfs
-        self.displayProjections = {feature: self.aggdata.aggDisplays[feature] for feature in displayFeatures}
-        self.allClickProjections = self.clickProjections.copy()
-        self.allDisplayProjections = self.displayProjections.copy()
-
     def setWeights(self):
         self.displayWeights, self.offsetClicks = self.prepareWeights(self.features + self.displaysCfs)
         self.clickWeights, offset = self.prepareWeights(self.features + self.clicksCfs, self.offsetClicks)
         self.parameters = np.zeros(offset)
-        self.allClickWeights = self.clickWeights.copy()
-        self.allDisplayWeights = self.displayWeights.copy()
         self.setRegul(self.regulL2Click, self.regulL2)
 
     def setRegul(self, regulL2Click, regulL2):
@@ -130,7 +117,6 @@ class AggMRFModel(BaseAggModel):
             samples = SampleSet(
                 [self.displayProjections[feature] for feature in self.features],
                 self.nbSamples,
-                self.decollapseGibbs,
                 self.sampleFromPY0,
                 self.maxNbRowsPerSlice,
             )
@@ -142,7 +128,7 @@ class AggMRFModel(BaseAggModel):
                 constantMRFParameters,
                 variableMRFParameters,
                 self.nbSamples,
-                self.decollapseGibbs,
+                False,
                 self.sampleFromPY0,
                 self.maxNbRowsPerSlice,
             )
@@ -168,6 +154,18 @@ class AggMRFModel(BaseAggModel):
     def setSamples(self):
         self.samples = self.buildSamples()
 
+    @property
+    def displayProjections(self):
+        return self.aggdata.aggDisplays
+
+    @property
+    def clickProjections(self):
+        return self.aggdata.aggDisplays
+
+    @property
+    def nbCoefs(self):
+        return len(self.Data)
+
     def initParameters(self):
         v0 = self.features[0]
         self.normgrad = 1.0
@@ -176,36 +174,18 @@ class AggMRFModel(BaseAggModel):
         self.muIntercept = np.log(nbdisplays - nbclicks)
         self.lambdaIntercept = np.log(nbclicks) - self.muIntercept
         logNbDisplay = np.log(nbdisplays)
-        for feature in self.activeFeatures:
+        for feature in self.features:
             weights = self.displayWeights[feature]
             proj = self.displayProjections[feature]
             self.parameters[weights.indices] = np.log(np.maximum(proj.Data, self.priorDisplays)) - logNbDisplay
-            # init to log( P(v | C=0 ) instead ???
 
     def prepareFit(self):
-        self.setProjections()  # building all weights and projections now
         self.setWeights()
-        self.setActiveFeatures(self.activeFeatures)  # keeping only those active at the beginning
+        self.setAggDataVector()
         self.initParameters()
         self.setSamples()  # reseting data
         self.update()
         return
-
-    def isActive(self, v):
-        return all([x in self.activeFeatures for x in v.split("&")])
-
-    def setActiveFeatures(self, activeFeatures):
-        self.features = activeFeatures
-        self.activeFeatures = activeFeatures
-        self.displayProjections = {v: f for (v, f) in self.allDisplayProjections.items() if self.isActive(v)}
-        self.displayWeights = {v: f for (v, f) in self.allDisplayWeights.items() if self.isActive(v)}
-        self.clickProjections = {v: f for (v, f) in self.allClickProjections.items() if self.isActive(v)}
-        self.clickWeights = {v: f for (v, f) in self.allClickWeights.items() if self.isActive(v)}
-        self.nbCoefs = sum([w.feature.Size for w in self.displayWeights.values()]) + sum(
-            [w.feature.Size for w in self.clickWeights.values()]
-        )
-        self.bestLoss = 9999999999999999.0
-        self.setAggDataVector()
 
     def setparameters(self, x):
         self.parameters = x
@@ -285,9 +265,6 @@ class AggMRFModel(BaseAggModel):
         samples.UpdateSampleWeights(self)
 
     def getPredictionsVector(self, samples):
-        if self.RaoBlackwellization:
-            return ComputeRWpred(self, samples, self.maxNbRowsPerSlice)
-
         return samples.GetPrediction(self)
 
     def getPredictionsVector_(self, samples, index):
@@ -299,8 +276,8 @@ class AggMRFModel(BaseAggModel):
         return x
 
     def setAggDataVector(self):
-        self.Data = self.getAggDataVector(self.clickWeights, self.clickProjections)
-        self.Data += self.getAggDataVector(self.displayWeights, self.displayProjections)
+        self.Data = self.getAggDataVector(self.clickWeights, self.aggdata.aggClicks)
+        self.Data += self.getAggDataVector(self.displayWeights, self.aggdata.aggDisplays)
         self.DataRemoveNegatives = self.Data * (self.Data > 0)
 
     # Computing approx LLH, (not true LLH)
@@ -442,7 +419,7 @@ class AggMRFModel(BaseAggModel):
             constantMRFParameters,
             variableMRFParameters,
             samples.Size,
-            samples.decollapseGibbs,
+            False,
             samples.sampleFromPY0,
             self.maxNbRowsPerSlice,
             samples.get_rows(),
@@ -452,7 +429,6 @@ class AggMRFModel(BaseAggModel):
         return SampleSet(
             samples.projections,
             samples.Size,
-            samples.decollapseGibbs,
             samples.sampleFromPY0,
             self.maxNbRowsPerSlice,
             samples.get_rows(),

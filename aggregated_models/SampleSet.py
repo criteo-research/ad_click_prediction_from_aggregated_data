@@ -17,13 +17,11 @@ class SampleSet:
         self,
         projections,
         nbSamples=None,
-        decollapseGibbs=False,
         sampleFromPY0=False,
         maxNbRowsPerSlice=50,
         rows=None,
     ):
         self.projections = projections
-        self.decollapseGibbs = decollapseGibbs
         self.sampleFromPY0 = sampleFromPY0
         self.features = [p.feature for p in projections]
         self.featurenames = [f.Name for f in self.features]
@@ -78,14 +76,6 @@ class SampleSet:
             n = np.exp(muIntercept) * (1 + np.exp(lambdaIntercept))
             self.Enoclick = self.expmu / self.Z * n
             self.Eclick = self.explambda / self.Z * n
-
-        elif self.decollapseGibbs:
-            # sampling Y instead of taking the expectation. Yeah it looks silly.
-            pclick = self.explambda / (self.expmu + self.explambda)
-            r = np.random.rand(len(pclick))
-            clicked = 1 * (r < pclick)
-            self.Enoclick = (1 - clicked) * (self.expmu + self.explambda) * self.weights
-            self.Eclick = clicked * (self.expmu + self.explambda) * self.weights
 
         else:  # normal case (Gibbs samples)
             self.Enoclick = self.expmu * self.weights
