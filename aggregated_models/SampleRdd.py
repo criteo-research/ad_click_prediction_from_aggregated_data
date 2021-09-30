@@ -100,6 +100,8 @@ class SampleRdd:
 
             self.rddSamples = rddnew
             self.cleanBroadcasts()
+        # Invalidating prediction because samples have changed
+        self.prediction = None
 
     def cleanBroadcasts(self):
         for k in self.broadcast_history:
@@ -198,10 +200,6 @@ class SampleRdd:
 
         return self.rddSamples.map(myfun_sampling_from_p_y0)
 
-    def UpdateSampleWeights(self, model):
-        # Invalidating prediction because samples have changed
-        self.prediction = None
-
     def _compute_prediction(self, model, rdd_x_edisplay_eclick):
         rdd_one_hot_index = self._convert_to_one_hot_index(model, rdd_x_edisplay_eclick)
         rdd_exploded = self._explode_one_hot_index(rdd_one_hot_index)
@@ -229,7 +227,7 @@ class SampleRdd:
             rdd_sample_expdotproducts = self._compute_rdd_expdotproducts(model)
             rdd_x_edisplay_eclick = self._compute_edisplay_eclick(model, rdd_sample_expdotproducts)
             self.prediction = self._compute_prediction(model, rdd_x_edisplay_eclick)
-        return self.prediction
+        return self.prediction / model.aggdata.Nbdisplays
 
     def _compute_rdd_expdotproducts(self, model):
         """

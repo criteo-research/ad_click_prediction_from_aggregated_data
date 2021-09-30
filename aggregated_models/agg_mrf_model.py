@@ -10,7 +10,7 @@ from dataclasses import dataclass, asdict
 from joblib import Parallel, delayed
 from typing import Dict
 from aggregated_models.featuremappings import SingleFeatureMapping, CrossFeaturesMapping
-from aggregated_models.SampleSet import SampleSet
+from aggregated_models.SampleSet import SampleSet, FullSampleSet
 from aggregated_models.SampleRdd import SampleRdd
 from aggregated_models import featureprojections
 from aggregated_models.baseaggmodel import BaseAggModel, WeightsSet
@@ -114,12 +114,16 @@ class AggMRFModel(BaseAggModel):
 
     def buildSamples(self):
         if self.sparkSession is None:
-            samples = SampleSet(
-                [self.displayProjections[feature] for feature in self.features],
-                self.nbSamples,
-                self.sampleFromPY0,
-                self.maxNbRowsPerSlice,
-            )
+            if not self.exactComputation:
+                samples = SampleSet(
+                    self.displaySimpleProjections,
+                    self.nbSamples,
+                    self,
+                    self.sampleFromPY0,
+                    self.maxNbRowsPerSlice,
+                )
+            else:
+                samples = FullSampleSet(self.displaySimpleProjections, self, self.maxNbRowsPerSlice)
         else:
             variableMRFParameters, constantMRFParameters = self._get_mrf_parameters()
             samples = SampleRdd(
@@ -161,6 +165,10 @@ class AggMRFModel(BaseAggModel):
     @property
     def clickProjections(self):
         return self.aggdata.aggDisplays
+
+    @property
+    def displaySimpleProjections(self):
+        return [self.displayProjections[feature] for feature in self.features]
 
     @property
     def nbCoefs(self):
@@ -259,13 +267,10 @@ class AggMRFModel(BaseAggModel):
         self.predictinternal(self.samples)
 
     def updateSamplesWithGibbs(self, samples):
-        if not samples.allcrossmods:
-            # Not applying Gibbs if full samples was generated
-            samples.UpdateSampleWithGibbs(self, self.nbGibbsIter)
-        samples.UpdateSampleWeights(self)
+        samples.UpdateSampleWithGibbs(self, self.nbGibbsIter)
 
     def getPredictionsVector(self, samples):
-        return samples.GetPrediction(self)
+        return samples.GetPrediction(self) * self.aggdata.Nbdisplays
 
     def getPredictionsVector_(self, samples, index):
         x = self.parameters * 0
@@ -414,7 +419,7 @@ class AggMRFModel(BaseAggModel):
     def buildSamplesRddFromSampleSet(self, samples):
         variableMRFParameters, constantMRFParameters = self._get_mrf_parameters()
         return SampleRdd(
-            samples.projections,
+            self.displaySimpleProjections,
             self.sparkSession,
             constantMRFParameters,
             variableMRFParameters,
@@ -427,17 +432,13 @@ class AggMRFModel(BaseAggModel):
 
     def buildSamplesSetFromSampleRdd(self, samples):
         return SampleSet(
-            samples.projections,
+            self.displaySimpleProjections,
             samples.Size,
+            self,
             samples.sampleFromPY0,
             self.maxNbRowsPerSlice,
             samples.get_rows(),
         )
-
-    def maxprobaratio(self, samples):
-        probaSamples = samples.probaSamples
-        pmodel = samples.expmu / np.exp(self.muIntercept)
-        return max(pmodel / probaSamples)
 
     def fit(self, nbIter=100, alpha=0.01):
         Optimizers.simpleGradientStep(
