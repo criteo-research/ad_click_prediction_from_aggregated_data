@@ -8,7 +8,7 @@ from aggregated_models.featuremappings import (
     SingleFeatureMapping,
 )
 
-MAXMODALITIES = 1e7
+MAXMODALITIES = 5e7
 
 
 # set of samples of 'x' used internally by AggMRFModel
@@ -145,6 +145,7 @@ class SampleSet:
         self.allcrossmods = True
         nbCrossModalities = self.countCrossmods()
         if nbCrossModalities > MAXMODALITIES:
+            print("Too many crossmodalities", nbCrossModalities, MAXMODALITIES)
             return self.sampleIndepedent(MAXMODALITIES)
         # else:
         #    #  print( f"Building full set of {nbCrossModalities:.1E}  crossmodalities ")

@@ -45,15 +45,15 @@ class AggLogistic(BaseAggModel):
     def initParameters(self):
         nbclicks = self.aggdata.Nbclicks
         nbdisplays = self.aggdata.Nbdisplays
-        self.lambdaIntercept = np.log(nbclicks / (nbdisplays - nbclicks))
+        self.lambdaIntercept = np.log((nbclicks + 0.001) / (nbdisplays - nbclicks))
 
     def prepareFit(self, df):
         self.setDisplays(df)
         self.update()
 
     def predictDFinternal(self, df, pred_col_name: str):
-        df["lambda"] = self.dotproductsOnDF(self.clickWeights, df) + self.lambdaIntercept
-        df[pred_col_name] = 1.0 / (1.0 + np.exp(-df["lambda"]))
+        dotprods = self.dotproductsOnDF(self.clickWeights, df) + self.lambdaIntercept
+        df[pred_col_name] = 1.0 / (1.0 + np.exp(-dotprods))
         return df
 
     def predictinternal(self):

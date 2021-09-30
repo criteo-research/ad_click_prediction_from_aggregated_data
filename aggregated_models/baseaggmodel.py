@@ -68,11 +68,14 @@ class BaseAggModel:
             self.parameters = x
             self.update()
 
-    def dotproducts(self, weights, x):
+    def dotproducts_(self, weights, x, parameters):
         results = np.zeros(x.shape[1])
         for w in weights.values():
-            results += self.parameters[w.GetIndices_(x)]
+            results += parameters[w.GetIndices_(x)]
         return results
+
+    def dotproducts(self, weights, x):
+        return self.dotproducts_(weights, x, self.parameters)
 
     def dotproductsOnDF(self, weights, df):
         results = np.zeros(len(df))
@@ -90,6 +93,10 @@ class BaseAggModel:
     def predictDF(self, df, pred_col_name: str):
         df = self.transformDf(df)
         return self.predictDFinternal(df, pred_col_name)
+
+    def predict(self, x):
+        dotprods = self.dotproducts(self.clickWeights, x) + self.lambdaIntercept
+        return 1.0 / (1.0 + np.exp(-dotprods))
 
     def computeGradientAt(self, x):
         self.setparameters(x)
