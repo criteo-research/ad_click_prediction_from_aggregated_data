@@ -16,8 +16,6 @@ from aggregated_models.mrf_helpers import (
     blockedGibbsSampler_PY0,
 )
 
-MAXMODALITIES = 1e7
-
 
 # set of samples of 'x' used internally by AggMRFModel
 class SampleRdd:
@@ -28,18 +26,14 @@ class SampleRdd:
         constantModelParameters: ConstantMRFParameters = None,
         variableModelParameters: VariableMRFParameters = None,
         nbSamples=100,
-        decollapseGibbs=False,
+        someObsoleteParam=False,
         sampleFromPY0=False,
         maxNbRowsPerSlice=500,
         data=None,
     ):
         self.projections = projections
-        self.decollapseGibbs = decollapseGibbs
         self.sampleFromPY0 = sampleFromPY0
-        self.features = [p.feature for p in projections]
-        self.featurenames = [f.Name for f in self.features]
         self.Size = nbSamples
-        self.allcrossmods = False
         self.prediction: Optional[np.ndarray] = None
         self.sparkSession: SparkSession = sparkSession
         self.broadcast_history: List[Broadcast] = list()
