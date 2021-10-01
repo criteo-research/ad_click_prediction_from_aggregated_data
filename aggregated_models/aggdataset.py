@@ -105,6 +105,7 @@ class AggDataset:
         features,
         cf="*&*",
         label="click",
+        otherCols=[],
         epsilon0=None,
         delta=None,
         removeNegativeValues=False,
@@ -112,26 +113,50 @@ class AggDataset:
     ):
         if dataframe is None:
             return
-        self.label = label
-        self.featuresSet = FeaturesSet(features, "*&*", dataframe, maxNbModalities)
-        self.features = self.featuresSet.features
-        self.aggClicks = self.featuresSet.Project(dataframe, label)
-        if isinstance(dataframe, pd.DataFrame):
-            dataframe[self._DISPLAY_COL_NAME] = 1
-        else:
-            dataframe = dataframe.withColumn(self._DISPLAY_COL_NAME, F.lit(1))
-        self.aggDisplays = self.featuresSet.Project(dataframe, self._DISPLAY_COL_NAME)
-        self.Nbclicks = self.aggClicks[features[0]].Data.sum()
-        self.Nbdisplays = self.aggDisplays[features[0]].Data.sum()
 
         self.epsilon0 = epsilon0
         self.delta = delta
         self.removeNegativeValues = removeNegativeValues
+        self.featuresSet = FeaturesSet(features, "*&*", dataframe, maxNbModalities)
+        self.columns = [self._DISPLAY_COL_NAME, label] + otherCols
+        self.aggregate(dataframe)
 
         if epsilon0 is not None:
             self.MakeDiffPrivate(epsilon0, delta, removeNegativeValues)
         else:
             self.noiseDistribution = None
+
+    def aggregate(self, dataframe):
+        if isinstance(dataframe, pd.DataFrame):
+            dataframe[self._DISPLAY_COL_NAME] = 1
+        else:
+            dataframe = dataframe.withColumn(self._DISPLAY_COL_NAME, F.lit(1))
+        self.aggregations = {col: self.featuresSet.Project(dataframe, col) for col in self.columns}
+        self.AggregationSums = {col: self.aggregations[col][self.features[0]].Data.sum() for col in self.columns}
+
+    @property
+    def features(self):
+        return self.featuresSet.features
+
+    @property
+    def label(self):
+        return self.columns[1]
+
+    @property
+    def aggDisplays(self):
+        return self.aggregations[self._DISPLAY_COL_NAME]
+
+    @property
+    def aggClicks(self):
+        return self.aggregations[self.label]
+
+    @property
+    def Nbdisplays(self):
+        return self.AggregationSums[self._DISPLAY_COL_NAME]
+
+    @property
+    def Nbclicks(self):
+        return self.AggregationSums[self.label]
 
     def toDFs(self):
         dfs = {}
@@ -145,10 +170,9 @@ class AggDataset:
         return f"Label:{self.label};featuresSet:{self.featuresSet}"
 
     def MakeDiffPrivate(self, epsilon0=1.0, delta=None, removeNegativeValues=False):
-
         self.epsilon0 = epsilon0  # garanteed epsilon
         self.delta = delta
-        nbQuerries = len(self.aggDisplays)
+        nbQuerries = len(self.aggDisplays) * len(self.columns)
         if delta is None:
             self.mechanism = LaplaceMechanism(epsilon0, nbQuerries)
         else:
@@ -156,26 +180,20 @@ class AggDataset:
         print(self.mechanism)
         self.noiseDistribution = self.mechanism.getNoise()
 
-        for proj in self.aggClicks.values():
-            n = len(proj.Data)
-            proj.Data += self.noiseDistribution.Sample(n)
-            if removeNegativeValues:
-                proj.Data[proj.Data < 0] = 0
-        for proj in self.aggDisplays.values():
-            n = len(proj.Data)
-            proj.Data += self.noiseDistribution.Sample(n)
-            if removeNegativeValues:
-                proj.Data[proj.Data < 0] = 0
+        for agg in self.aggregations.values():
+            for proj in agg.values():
+                n = len(proj.Data)
+                proj.Data += self.noiseDistribution.Sample(n)
+                if removeNegativeValues:
+                    proj.Data[proj.Data < 0] = 0
         return self
 
     def dump(self, handle):
         self.featuresSet.dump(handle)
-        pickle.dump({k: v.Data for (k, v) in self.aggDisplays.items()}, handle)
-        pickle.dump({k: v.Data for (k, v) in self.aggClicks.items()}, handle)
-        pickle.dump(self.label, handle)
-        pickle.dump(self.features, handle)
-        pickle.dump(self.Nbclicks, handle)
-        pickle.dump(self.Nbdisplays, handle)
+        pickle.dump(self.columns, handle)
+        for agg in self.aggregations.values():
+            pickle.dump({k: v.Data for (k, v) in agg.items()}, handle)
+        pickle.dump(self.AggregationSums, handle)
         pickle.dump(self.epsilon0, handle)
         pickle.dump(self.delta, handle)
         pickle.dump(self.removeNegativeValues, handle)
@@ -183,23 +201,46 @@ class AggDataset:
     @staticmethod
     def load(handle, ss=None):
         self = AggDataset(None, None)
+        self.featuresSet = FeaturesSet.load(handle, ss)
+        self.columns = pickle.load(handle)
+        self.aggregations = {}
+        for col in self.columns:
+            aggRaw = pickle.load(handle)
+            agg = {}
+            for k in aggRaw:
+                feature = self.featuresSet.mappings[k]
+                agg[k] = DataProjection(feature, None, k, aggRaw[k])
+            self.aggregations[col] = agg
+        self.AggregationSums = pickle.load(handle)
+        self.epsilon0 = pickle.load(handle)
+        self.delta = pickle.load(handle)
+        self.removeNegativeValues = pickle.load(handle)
+        return self
+
+    @staticmethod
+    def load_legacy(handle, ss=None):
+        self = AggDataset(None, None)
 
         self.featuresSet = FeaturesSet.load(handle, ss)
         aggDisplaysRaw = pickle.load(handle)
         aggClicksRaw = pickle.load(handle)
-        self.label = pickle.load(handle)
-        self.features = pickle.load(handle)
-        self.Nbclicks = pickle.load(handle)
-        self.Nbdisplays = pickle.load(handle)
+        label = pickle.load(handle)
+        self.columns = [self._DISPLAY_COL_NAME, label]
+        features = pickle.load(handle)
+        self.AggregationSums = {}
+        self.AggregationSums[self.label] = pickle.load(handle)
+        self.AggregationSums[self._DISPLAY_COL_NAME] = pickle.load(handle)
+
         self.epsilon0 = pickle.load(handle)
         self.delta = pickle.load(handle)
         self.removeNegativeValues = pickle.load(handle)
 
-        self.aggDisplays = {}
+        self.aggregations = {}
+        self.aggregations[self._DISPLAY_COL_NAME] = {}
         for k in aggDisplaysRaw:
             feature = self.featuresSet.mappings[k]
             self.aggDisplays[k] = DataProjection(feature, None, k, aggDisplaysRaw[k])
-        self.aggClicks = {}
+        self.aggregations[self.label] = {}
         for k in aggClicksRaw:
             feature = self.featuresSet.mappings[k]
             self.aggClicks[k] = DataProjection(feature, None, k, aggClicksRaw[k])
