@@ -21,6 +21,7 @@ from aggregated_models.mrf_helpers import (
     fastGibbsSampleFromPY0,
     VariableMRFParameters,
     ConstantMRFParameters,
+    fastGibbsSampleFromPY0_withAggPredictions,
 )
 import pyspark.sql.functions as F
 import pyspark.sql as ps
@@ -109,8 +110,12 @@ class AggMRFModel(BaseAggModel):
     def setRegul(self, regulL2Click, regulL2):
         self.regulL2Click = regulL2Click
         self.regulL2 = regulL2
-        self.regulVector = np.zeros(len(self.parameters)) + self.regulL2
-        self.regulVector[self.offsetClicks :] = self.regulL2Click
+
+    @property
+    def regulVector(self):
+        regulVector = np.zeros(len(self.parameters)) + self.regulL2
+        regulVector[self.offsetClicks :] = self.regulL2Click
+        return regulVector
 
     def buildSamples(self):
         if self.sparkSession is None:
@@ -173,6 +178,14 @@ class AggMRFModel(BaseAggModel):
     @property
     def nbCoefs(self):
         return len(self.Data)
+
+    @property
+    def mu(self):
+        return self.parameters[: self.offsetClicks]
+
+    @property
+    def theta(self):
+        return self.parameters[self.offsetClicks :]
 
     def initParameters(self):
         v0 = self.features[0]
@@ -283,7 +296,10 @@ class AggMRFModel(BaseAggModel):
     def setAggDataVector(self):
         self.Data = self.getAggDataVector(self.clickWeights, self.aggdata.aggClicks)
         self.Data += self.getAggDataVector(self.displayWeights, self.aggdata.aggDisplays)
-        self.DataRemoveNegatives = self.Data * (self.Data > 0)
+
+    @property
+    def DataRemoveNegatives(self):
+        return self.Data * (self.Data > 0)
 
     # Computing approx LLH, (not true LLH)
     def computeLoss_(self, samples=None, epsilon=1e-12):
@@ -622,3 +638,4 @@ class AggMRFModel(BaseAggModel):
                 except:
                     print("WARNING: could not load samples from " + samplesfile)
         return model
+
