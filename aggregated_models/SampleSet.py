@@ -8,6 +8,8 @@ from aggregated_models.featuremappings import (
     SingleFeatureMapping,
 )
 
+# from aggregated_models.agg_mrf_model import *
+
 MAXMODALITIES = 5e7
 
 
@@ -96,7 +98,7 @@ class SampleSet(SimpleSampleSet):
 
     def Update(self, model):
         self._computedotprods(model)
-        self._setweights()
+        self._setweights(model)
         self._compute_prediction(model)
 
     def _computedotprods(self, model):
@@ -105,11 +107,16 @@ class SampleSet(SimpleSampleSet):
         self.expmu = np.exp(mus)
         self.explambda = np.exp(lambdas)
 
+        if "AggMRFModelWithAggPreds" in str(type(model)):
+            # xDotNu     = model.dotproducts_(model.displayWeights, self.columns, model.nu)
+            xDotTheta0 = model.dotproducts_(model.displayWeights, self.columns, model.theta0)
+            self.p0 = 1 / (1 + np.exp(-xDotTheta0))
+
     @property
     def pclick(self):
         return self.explambda / (1 + self.explambda)
 
-    def _setweights(self):
+    def _setweights(self, model):
         self.weights = np.ones(len(self.explambda))
         if self.sampleFromPY0:
             # Importance weights to compute expectations on P(X=x)  from samples of P(X=x |Y=0)
@@ -124,9 +131,13 @@ class SampleSet(SimpleSampleSet):
     def _compute_prediction(self, model):
         self.prediction = model.parameters * 0
         for w in model.displayWeights.values():
-            self.prediction[w.indices] = w.feature.Project_(self.columns, self.weights)  # Correct for grads
+            self.prediction[w.indices] = w.feature.Project_(self.columns, self.weights)
         for w in model.clickWeights.values():
             self.prediction[w.indices] = w.feature.Project_(self.columns, self.weights * self.pclick)
+
+        if "AggMRFModelWithAggPreds" in str(type(model)):
+            for w in model.displayWeights.values():
+                self.prediction[w.indices + model.offsetNu] = w.feature.Project_(self.columns, self.weights * self.p0)
 
     def PredictInternal(self, model):
         self._computedotprods(model)
@@ -179,7 +190,7 @@ class FullSampleSet(SampleSet):
             crossmodalitiesdf = pd.merge(crossmodalitiesdf, modalitiesdf.assign(c=0), on="c")
         return crossmodalitiesdf
 
-    def _setweights(self):
+    def _setweights(self, model):
         self.weights = self.expmu * (1 + self.explambda)
         self.weights = self.weights / self.weights.sum()
 
