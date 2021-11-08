@@ -1,9 +1,10 @@
 import os.path
 import os
 from aggregated_models.noiseDistributions import *
+from aggregated_models.AggMRFModelWithAggPreds import *
 from aggregated_models.validation import MetricsComputer, LLH, NLlh
 from sklearn.metrics import roc_auc_score
-from aggregated_models.agg_mrf_model import AggMRFModel, AggMRFModelParams, AggMRFModelWithXSamples
+from aggregated_models.agg_mrf_model import AggMRFModel, AggMRFModelParams
 from aggregated_models.aggdataset import AggDataset, FeaturesSet
 import numpy as np
 from pathlib import Path
@@ -79,7 +80,7 @@ class Experiment:
     def loadModel(self):
         ss = self.ss
         if self.totalNbIters > 0:
-            self.model = AggMRFModel.load(self.path + "model", self.path + "model_temp", ss)
+            self.model = AggMRFModel.load(self.path + "model", spark_session=ss)
             self.printAndLog(f"model succesfully reloaded at {self.totalNbIters} iterations. ")
         else:
             print("creating model")
