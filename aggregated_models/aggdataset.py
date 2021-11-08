@@ -8,6 +8,7 @@ from aggregated_models.featureprojections import (
     CrossFeaturesProjection,
     DataProjection,
     parseCF,
+    GetCfName,
 )
 
 
@@ -48,10 +49,20 @@ class FeaturesSet:
         mappings = {}
         fid = 0
         for var in self.features:
-            mapping = SingleFeatureProjection(var, df, fid, self.maxNbModalities)
+
+            maxNbModalities = self.getMaxNbModalities(var)
+            mapping = SingleFeatureProjection(var, df, fid, maxNbModalities)
             mappings[var] = mapping
             fid += 1
         return mappings
+
+    def getMaxNbModalities(self, var):
+        if type(self.maxNbModalities) is dict:
+            if var in self.maxNbModalities:
+                return self.maxNbModalities[var]
+            else:
+                return self.maxNbModalities["default"]
+        return self.maxNbModalities
 
     def addCrossesMappings(self):
         mappings = self.mappings
@@ -59,7 +70,9 @@ class FeaturesSet:
         for cf in self.crossfeatures:
             if len(cf) != 2:
                 raise Exception("cf of len !=2  not supported yet")
-            mapping = CrossFeaturesProjection(mappings[cf[0]], mappings[cf[1]], self.maxNbModalities)
+
+            maxNbModalities = self.getMaxNbModalities(GetCfName(cf))
+            mapping = CrossFeaturesProjection(mappings[cf[0]], mappings[cf[1]], maxNbModalities)
             mappings[mapping.Name] = mapping
 
     def getMapping(self, var):

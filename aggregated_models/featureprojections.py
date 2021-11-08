@@ -53,6 +53,12 @@ class DataProjection:
         data = pickle.load(handle)
         return DataProjection(feature, None, colName, data)
 
+    def copy0(self):
+        return DataProjection(self.feature, None, self.colName, np.zeros(len(self.Data)))
+
+    def Add(self, df):
+        self.Data += self.feature.Project(df, self.colName)
+
 
 def parseCFNames(features, crossfeaturesStr):
     cfs = parseCF(features, crossfeaturesStr)
