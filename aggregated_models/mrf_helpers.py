@@ -17,6 +17,16 @@ class VariableMRFParameters:
                 self.parametersForPY1[model.displayWeights[f].indices] += self.parametersForPY1[
                     model.clickWeights[f].indices
                 ]
+        # Copying things which only exist on some models
+        try:  # for AggMRFModelWithAggPreds
+            self.theta0 = model.theta0
+            self.offsetNu = model.offsetNu
+        except:
+            pass
+
+    @property
+    def nu(self):
+        return self.parameters[self.offsetNu :]
 
 
 class ConstantMRFParameters:
@@ -864,9 +874,7 @@ def blockedGibbsSampler_PY0(exportedDisplayWeights, modalitiesByVarId, paramsVec
 
 
 # Sampling from  P(X=x  |Y=0) := exp( K(x).mu + f(x) K(x).vu   ) /Z
-#  avec f(x) :=  sigmoid( K(x).theta0 )
-
-
+#  avec f(x) :=  LinkFunction( K(x).theta0 )
 @jit(nopython=True)
 def fastGibbsSampleFromPY0_withAggPredictions(
     exportedDisplayWeights,
@@ -878,6 +886,7 @@ def fastGibbsSampleFromPY0_withAggPredictions(
     kx_dot_params_f0,
     kx_dot_vu,
     nbsteps,
+    linkFunctionId,  #  0 -> Identity  , 1 -> sigmoid, 2 -> exp
 ):
     (
         allcoefsv,
@@ -939,7 +948,15 @@ def fastGibbsSampleFromPY0_withAggPredictions(
 
             vus = vus - vus[xi] + kx_dot_vu
             theta0s = theta0s - theta0s[xi] + kx_dot_params_f0
-            f0s = 1 / (1 + np.exp(-theta0s))  # sigmoid of K(x).theta0
+            # applying link function
+
+            if linkFunctionId == 0:
+                f0s = theta0s
+            elif linkFunctionId == 1:
+                f0s = 1 / (1 + np.exp(-theta0s))  # sigmoid of K(x).theta0
+            elif linkFunctionId == 2:
+                f0s = np.exp(theta0s)
+
             probas = np.exp(mus + f0s * vus)
 
             # Sampling now modality of varId
