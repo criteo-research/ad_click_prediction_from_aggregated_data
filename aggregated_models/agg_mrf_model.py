@@ -1,4 +1,8 @@
+import numba
+import getpass
 import json
+import operator
+import itertools
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -16,12 +20,13 @@ from aggregated_models import featureprojections
 from aggregated_models.baseaggmodel import BaseAggModel, WeightsSet
 from aggregated_models import Optimizers
 from aggregated_models.mrf_helpers import (
+    oneHotEncode,
     ComputeRWpred,
     fastGibbsSample,
     fastGibbsSampleFromPY0,
     VariableMRFParameters,
     ConstantMRFParameters,
-    fastGibbsSampleFromPY0_withAggPredictions,
+    blockedGibbsSampler_PY0,
 )
 import pyspark.sql.functions as F
 import pyspark.sql as ps
@@ -104,6 +109,7 @@ class AggMRFModel(BaseAggModel):
     def setWeights(self):
         self.displayWeights, self.offsetClicks = self.prepareWeights(self.features + self.displaysCfs)
         self.clickWeights, offset = self.prepareWeights(self.features + self.clicksCfs, self.offsetClicks)
+        self.offset = offset
         self.parameters = np.zeros(offset)
         self.setRegul(self.regulL2Click, self.regulL2)
 
@@ -185,7 +191,27 @@ class AggMRFModel(BaseAggModel):
 
     @property
     def theta(self):
-        return self.parameters[self.offsetClicks :]
+        return self.parameters[self.offsetClicks : self.offset]
+
+    @property
+    def aggdisplaysvector(self):
+        return self.Data[: self.offsetClicks]
+
+    @property
+    def aggclicksvector(self):
+        return self.Data[self.offsetClicks : self.offset]
+
+    @property
+    def pData(self):
+        return self.getPredictionsVector(self.samples)
+
+    @property
+    def paggdisplaysvector(self):
+        return self.pData[: self.offsetClicks]
+
+    @property
+    def paggclicksvector(self):
+        return self.pData[self.offsetClicks : self.offset]
 
     def initParameters(self):
         v0 = self.features[0]
@@ -433,17 +459,20 @@ class AggMRFModel(BaseAggModel):
         self.updateSamplesWithGibbs(self.samples)
 
     def buildSamplesRddFromSampleSet(self, samples):
+        return self.buildSamplesRddFromData(samples.get_rows())
+
+    def buildSamplesRddFromData(self, data):
         variableMRFParameters, constantMRFParameters = self._get_mrf_parameters()
         return SampleRdd(
             self.displaySimpleProjections,
             self.sparkSession,
             constantMRFParameters,
             variableMRFParameters,
-            samples.Size,
+            data.shape[0],
             False,
-            samples.sampleFromPY0,
+            self.sampleFromPY0,
             self.maxNbRowsPerSlice,
-            samples.get_rows(),
+            data,
         )
 
     def buildSamplesSetFromSampleRdd(self, samples):
@@ -569,15 +598,75 @@ class AggMRFModel(BaseAggModel):
         # samplesSlices = [ myfun(myslice) for myslice in  slices ]
         return np.vstack(samplesSlices).transpose()
 
+    def pysparkGibbsSampler(self, samples, nbGibbsIter=1):
+        if self.sampleFromPY0:
+            return self._runGibbsSampling_fromPY0(samples, nbGibbsIter)
+        else:
+            return self.pysparkGibbsSampler_samplingY(samples, nbGibbsIter)
+
+    def pysparkGibbsSampler_samplingY(model, self, nbGibbsIter=1):
+        constantMRFParameters = self.constantMRFParameters
+        variableMRFParameters = self.variableMRFParameters
+
+        def expdotproducts(x):
+            lambdas = 0
+            for w in constantMRFParameters.value.clickWeights.values():
+                lambdas += variableMRFParameters.value.parameters[w.feature.Values_(x) + w.offset]
+            explambda = np.exp(lambdas + constantMRFParameters.value.lambdaIntercept)
+            return x, explambda
+
+        def sampleY(x_expdotprod):
+            x, expdotprod = x_expdotprod
+            py = expdotprod / (1 + expdotprod)
+            y = 1 if py < np.random.random() else 0
+            return x, y
+
+        rdd_x_expdotprod = self.rdd.map(expdotproducts)
+        rdd_x_y = rdd_x_expdotprod.map(sampleY)
+        gibbsMaxNbModalities = model.gibbsMaxNbModalities
+
+        def myfun_sampling(sample_y):
+            sample, y = sample_y
+            if y == 0:
+                parameters = variableMRFParameters.value.parameters
+            else:
+                parameters = variableMRFParameters.value.parametersForPY1
+            return blockedGibbsSampler_PY0(
+                constantMRFParameters.value.explosedDisplayWeights,
+                constantMRFParameters.value.modalitiesByVarId,
+                parameters,
+                sample,
+                nbGibbsIter,
+                gibbsMaxNbModalities,
+            )
+
+        return rdd_x_y.map(myfun_sampling)
+
+    def _runGibbsSampling_fromPY0(model, self, nbGibbsIter=1):
+        constantMRFParameters = self.constantMRFParameters
+        variableMRFParameters = self.variableMRFParameters
+        gibbsMaxNbModalities = model.gibbsMaxNbModalities
+
+        def myfun_sampling_from_p_y0(sample):
+            return blockedGibbsSampler_PY0(
+                constantMRFParameters.value.explosedDisplayWeights,
+                constantMRFParameters.value.modalitiesByVarId,
+                variableMRFParameters.value.parameters,
+                sample,
+                nbGibbsIter,
+                gibbsMaxNbModalities,
+            )
+
+        return self.rddSamples.map(myfun_sampling_from_p_y0)
+
     # Saving parameters and samples.
     # Warning: Not saving featuremappings,
     # would not work if instanciated from a different sample of the same dataset.
-
     def save(self, base_local_dir: str, base_hdfs_dir: Optional[str] = None):
 
         if base_hdfs_dir is None:
-            base_hdfs_dir = "/tmp/a.gilotte/" + base_local_dir
-            print(base_hdfs_dir)
+            base_hdfs_dir = "/user/" + getpass.getuser() + "/" + base_local_dir
+            # print(base_hdfs_dir)
 
         base_local_path = Path(base_local_dir)
         base_hdfs_path = Path(base_hdfs_dir)
@@ -609,8 +698,9 @@ class AggMRFModel(BaseAggModel):
         loadSamples: bool = True,
     ):
 
-        if base_hdfs_dir is None:
-            base_hdfs_dir = "/tmp/a.gilotte/" + base_local_dir
+        if base_hdfs_dir is None and loadSamples:
+            base_hdfs_dir = "/user/" + getpass.getuser() + "/" + base_local_dir
+            print(f"using base_hdfs_dir = {base_hdfs_dir} ")
 
         base_local_path = Path(base_local_dir)
         base_hdfs_path = Path(base_hdfs_dir)
@@ -626,6 +716,7 @@ class AggMRFModel(BaseAggModel):
         model.setparameters(params)
         if loadSamples:
             if spark_session:
+                print(f"loading samples from parquet at {str(base_hdfs_path / 'samples')}")
                 rdd = spark_session.read.parquet(str(base_hdfs_path / "samples")).rdd
                 model.samples.nbSamples = rdd.count()
                 nbpartitions = int(model.samples.nbSamples / model.maxNbRowsPerSlice)
@@ -639,3 +730,38 @@ class AggMRFModel(BaseAggModel):
                     print("WARNING: could not load samples from " + samplesfile)
         return model
 
+    def pysparkPredict(self, samples):
+
+        constantMRFParameters = samples.constantMRFParameters
+        variableMRFParameters = samples.variableMRFParameters
+
+        def compute_explambda(x):
+            lambdas = 0
+            for w in constantMRFParameters.value.clickWeights.values():
+                lambdas += variableMRFParameters.value.parameters[w.feature.Values_(x) + w.offset]
+            explambda = np.exp(lambdas + constantMRFParameters.value.lambdaIntercept)
+            return explambda
+
+        def prepareX(x):
+            explambda = compute_explambda(x)
+
+            w = 1 + explambda
+            proj_display = oneHotEncode(x, constantMRFParameters.value.explosedDisplayWeights)
+            proj_click = oneHotEncode(x, constantMRFParameters.value.explosedClickWeights)
+
+            return (
+                (proj_display, w),
+                (proj_click, explambda),
+                ([-1], w),  # Keeping index '-1' to get sums of edisplays for normalization
+            )
+
+        rdd_keys_value = samples.rdd.flatMap(prepareX)
+
+        def explodeProjections(modalities_value):
+            modalities, value = modalities_value
+            return zip(modalities, itertools.repeat(value))
+
+        rdd_key_value = rdd_keys_value.flatMap(explodeProjections)
+        rdd_reduced = rdd_key_value.reduceByKey(operator.add)
+        projections = rdd_reduced.collectAsMap()
+        return samples._rebuid_predictions(self, projections)

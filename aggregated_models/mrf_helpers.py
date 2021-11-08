@@ -774,6 +774,10 @@ def buildAllModalities(varIds, modalitiesByVarId):
 
 @jit(nopython=True)
 def blockedGibbsSampler_PY0(exportedDisplayWeights, modalitiesByVarId, paramsVector, x, nbsteps, maxNbModalities):
+
+    if maxNbModalities <= 1:
+        return gibbsOneSampleFromPY0(exportedDisplayWeights, modalitiesByVarId, paramsVector, x, nbsteps)
+
     (
         allcoefsv,
         allcoefsv2,
