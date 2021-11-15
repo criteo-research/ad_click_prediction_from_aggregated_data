@@ -1,112 +1,49 @@
+from dataclasses import dataclass
 import pandas as pd
 import pickle
 import pyspark.sql.functions as F
 from aggregated_models.diff_priv_noise import GaussianMechanism, LaplaceMechanism
-from aggregated_models.featureprojections import (
-    ISingleFeatureProjection,
-    SingleFeatureProjection,
-    CrossFeaturesProjection,
-    DataProjection,
-    parseCF,
-    GetCfName,
-)
+from aggregated_models.CrossFeaturesSet import CrossFeaturesSet
+
+from aggregated_models.FeatureEncodings import *
 
 
-class FeaturesSet:
-    def __init__(self, features, crossfeaturesStr, df, maxNbModalities=None, singlefeaturesmappings=None):
-        self.features = features
-        self.crossfeaturesStr = crossfeaturesStr
-        self.maxNbModalities = maxNbModalities
-        if singlefeaturesmappings is None:
-            self.mappings = self.buildSimpleMappings(df)
-        else:
-            self.mappings = singlefeaturesmappings
-
-        self.crossfeatures = parseCF(features, crossfeaturesStr)
-        allfeatures = [f for cf in self.crossfeatures for f in cf]
-        if any([f not in features for f in allfeatures]):
-            raise Exception("Error: Some cross feature not declared in features list ")
-        self.addCrossesMappings()
-
-    def dump(self, handle):
-        pickle.dump(self.features, handle)
-        pickle.dump(self.crossfeaturesStr, handle)
-        pickle.dump(self.maxNbModalities, handle)
-        for f in self.features:
-            self.mappings[f].dump(handle)
+@dataclass
+class DataProjection:
+    feature: IEncoding
+    colName: str
+    Data: np.array
 
     @staticmethod
-    def load(handle, ss=None):
-        features = pickle.load(handle)
-        crossfeaturesStr = pickle.load(handle)
-        maxNbModalities = pickle.load(handle)
-        mappings = {}
-        for f in features:
-            mappings[f] = SingleFeatureProjection.load(handle)
-        return FeaturesSet(features, crossfeaturesStr, None, maxNbModalities, mappings)
+    def FromDF(feature: IEncoding, df: pd.DataFrame, colName):
+        data = feature.ProjectDF(df, colName)
+        return DataProjection(feature, colName, data)
 
-    def buildSimpleMappings(self, df):
-        mappings = {}
-        fid = 0
-        for var in self.features:
-
-            maxNbModalities = self.getMaxNbModalities(var)
-            mapping = SingleFeatureProjection(var, df, fid, maxNbModalities)
-            mappings[var] = mapping
-            fid += 1
-        return mappings
-
-    def getMaxNbModalities(self, var):
-        if type(self.maxNbModalities) is dict:
-            if var in self.maxNbModalities:
-                return self.maxNbModalities[var]
-            else:
-                return self.maxNbModalities["default"]
-        return self.maxNbModalities
-
-    def addCrossesMappings(self):
-        mappings = self.mappings
-        fid = len(mappings)
-        for cf in self.crossfeatures:
-            if len(cf) != 2:
-                raise Exception("cf of len !=2  not supported yet")
-
-            maxNbModalities = self.getMaxNbModalities(GetCfName(cf))
-            mapping = CrossFeaturesProjection(mappings[cf[0]], mappings[cf[1]], maxNbModalities)
-            mappings[mapping.Name] = mapping
-
-    def getMapping(self, var):
-        return self.mappings[var].get_feature_mapping()
-
-    def transformDf(self, df, alsoCrossfeatures=False):
-        if isinstance(df, pd.DataFrame):
-            df = df.copy()
-        for var in self.mappings.values():
-            if alsoCrossfeatures or isinstance(var, ISingleFeatureProjection):
-                df = var.Map(df)
-        return df
-
-    def Project(self, dataframe, column):
-        dataframe = self.transformDf(dataframe)
-        projections = {}
-        for var in self.mappings:
-            projections[var] = DataProjection(self.mappings[var], dataframe, column)
-        return projections
+    def _build(self, feature, data, colName):
+        self.feature = feature
+        self.colName = colName
+        self.Data = data
 
     def __repr__(self):
-        return ",".join(f.Name for f in self.mappings.values())
+        return f"Projection {self.colName} on {self.feature}"
 
-    def fix_fids(self, features_sublist):
-        fid = 0
-        mappings = self.mappings
-        for f in features_sublist:
-            mapping = mappings[f]
-            mapping._fid = fid
-            fid += 1
-        for cf in mappings.values():
-            if type(cf) is CrossFeaturesProjection:
-                cf._fid1 = mappings[cf._v1]._fid
-                cf._fid2 = mappings[cf._v2]._fid
+    def dump(self, handle):
+        self.feature.dump(handle)
+        pickle.dump(self.colName, handle)
+        pickle.dump(self.Data, handle)
+
+    @staticmethod
+    def load(handle):
+        feature = SingleFeatureProjection.load(handle)
+        colName = pickle.load(handle)
+        data = pickle.load(handle)
+        return DataProjection(feature, None, colName, data)
+
+    def copy0(self):
+        return DataProjection(self.feature, None, self.colName, np.zeros(len(self.Data)))
+
+    def Add(self, df):
+        self.Data += self.feature.ProjectDF(df, self.colName)
 
 
 class AggDataset:
@@ -130,7 +67,8 @@ class AggDataset:
         self.epsilon0 = epsilon0
         self.delta = delta
         self.removeNegativeValues = removeNegativeValues
-        self.featuresSet = FeaturesSet(features, "*&*", dataframe, maxNbModalities)
+
+        self.featuresSet = CrossFeaturesSet.FromDf(dataframe, features, maxNbModalities, "*&*")
         self.columns = [self._DISPLAY_COL_NAME, label] + otherCols
         self.aggregate(dataframe)
 
@@ -144,8 +82,21 @@ class AggDataset:
             dataframe[self._DISPLAY_COL_NAME] = 1
         else:
             dataframe = dataframe.withColumn(self._DISPLAY_COL_NAME, F.lit(1))
-        self.aggregations = {col: self.featuresSet.Project(dataframe, col) for col in self.columns}
-        self.AggregationSums = {col: self.aggregations[col][self.features[0]].Data.sum() for col in self.columns}
+
+        dataframe = self.featuresSet.transformDf(dataframe)
+        self.aggregations = {}
+        self.AggregationSums = {}
+
+        for col in self.columns:
+            self.aggregations[col] = {
+                encoding.Name: DataProjection.FromDF(encoding, dataframe, col)
+                for encoding in self.featuresSet.encodings.values()
+            }
+            self.AggregationSums[col] = self.aggregations[col][self.features[0]].Data.sum()
+
+    @property
+    def features(self):
+        return self.featuresSet.features
 
     @property
     def features(self):
@@ -212,49 +163,20 @@ class AggDataset:
         pickle.dump(self.removeNegativeValues, handle)
 
     @staticmethod
-    def load(handle, ss=None):
+    def load(handle):
         self = AggDataset(None, None)
-        self.featuresSet = FeaturesSet.load(handle, ss)
+        self.featuresSet = CrossFeaturesSet.load(handle)
         self.columns = pickle.load(handle)
         self.aggregations = {}
         for col in self.columns:
             aggRaw = pickle.load(handle)
             agg = {}
             for k in aggRaw:
-                feature = self.featuresSet.mappings[k]
-                agg[k] = DataProjection(feature, None, k, aggRaw[k])
+                feature = self.featuresSet.encodings[k]
+                agg[k] = DataProjection(feature, col, aggRaw[k])
             self.aggregations[col] = agg
         self.AggregationSums = pickle.load(handle)
         self.epsilon0 = pickle.load(handle)
         self.delta = pickle.load(handle)
         self.removeNegativeValues = pickle.load(handle)
-        return self
-
-    @staticmethod
-    def load_legacy(handle, ss=None):
-        self = AggDataset(None, None)
-
-        self.featuresSet = FeaturesSet.load(handle, ss)
-        aggDisplaysRaw = pickle.load(handle)
-        aggClicksRaw = pickle.load(handle)
-        label = pickle.load(handle)
-        self.columns = [self._DISPLAY_COL_NAME, label]
-        features = pickle.load(handle)
-        self.AggregationSums = {}
-        self.AggregationSums[self.label] = pickle.load(handle)
-        self.AggregationSums[self._DISPLAY_COL_NAME] = pickle.load(handle)
-
-        self.epsilon0 = pickle.load(handle)
-        self.delta = pickle.load(handle)
-        self.removeNegativeValues = pickle.load(handle)
-
-        self.aggregations = {}
-        self.aggregations[self._DISPLAY_COL_NAME] = {}
-        for k in aggDisplaysRaw:
-            feature = self.featuresSet.mappings[k]
-            self.aggDisplays[k] = DataProjection(feature, None, k, aggDisplaysRaw[k])
-        self.aggregations[self.label] = {}
-        for k in aggClicksRaw:
-            feature = self.featuresSet.mappings[k]
-            self.aggClicks[k] = DataProjection(feature, None, k, aggClicksRaw[k])
         return self

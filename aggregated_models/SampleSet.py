@@ -3,10 +3,6 @@ import numpy as np
 import random
 import bisect
 from collections import Counter
-from aggregated_models.featuremappings import (
-    CrossFeaturesMapping,
-    SingleFeatureMapping,
-)
 
 # from aggregated_models.agg_mrf_model import *
 

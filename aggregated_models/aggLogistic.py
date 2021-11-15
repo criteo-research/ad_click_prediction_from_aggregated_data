@@ -1,9 +1,5 @@
 import numpy as np
-from aggregated_models.featuremappings import (
-    CrossFeaturesMapping,
-    SingleFeatureMapping,
-)
-from aggregated_models import featureprojections
+from aggregated_models import CrossFeaturesSet
 from aggregated_models import Optimizers
 from aggregated_models.baseaggmodel import BaseAggModel
 
@@ -21,7 +17,7 @@ class AggLogistic(BaseAggModel):
     def __init__(self, aggdata, features, clicksCfs="*&*", regulL2=1.0):
         super().__init__(aggdata, features)
         self.regulL2 = regulL2
-        self.clicksCfs = featureprojections.parseCFNames(self.features, clicksCfs)
+        self.clicksCfs = CrossFeaturesSet.parseCFNames(self.features, clicksCfs)
         self.setProjections()  # building all weights and projections now
         self.setWeights()
         self.initParameters()
@@ -38,9 +34,7 @@ class AggLogistic(BaseAggModel):
         self.parameters = np.zeros(offset)
 
     def setDisplays(self, train):
-        self.samples = self.transformDf(
-            train[self.aggdata.features]
-        ).values.transpose()  # keeping all features from aggdata to avoid breaking features indexing
+        self.samples = self.DfToX(train)
 
     def initParameters(self):
         nbclicks = self.aggdata.Nbclicks

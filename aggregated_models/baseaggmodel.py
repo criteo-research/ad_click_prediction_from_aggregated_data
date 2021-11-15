@@ -1,11 +1,8 @@
 import pandas as pd
 import numpy as np
-from aggregated_models.featuremappings import (
-    CrossFeaturesMapping,
-    SingleFeatureMapping,
-)
+
 from aggregated_models.SampleSet import SampleSet
-from aggregated_models import featuremappings
+from aggregated_models.FeatureEncodings import *
 from aggregated_models import Optimizers
 
 
@@ -15,7 +12,7 @@ class WeightsSet:
     offset: first index used for this feature. subarray will be [offset:offset+feature.Size]
     """
 
-    def __init__(self, feature: SingleFeatureMapping, offset):
+    def __init__(self, feature: IEncoding, offset: int):
         self.feature = feature
         self.offset = offset
         self.indices = np.arange(self.offset, self.offset + self.feature.Size)
@@ -52,13 +49,21 @@ class BaseAggModel:
     def transformDf(self, df):
         return self.aggdata.featuresSet.transformDf(df, False)
 
-    def getMapping(self, var):
-        return self.aggdata.featuresSet.getMapping(var)
+    def DfToX(self, df):
+        df = self.transformDf(df)
+        x = np.zeros((len(self.features), len(df)), dtype=np.int32)
+        for f in self.features:
+            encoding = self.aggdata.featuresSet.encodings[f]
+            x[encoding._fid] = encoding.Values(df)
+        return x
+
+    def getEncoding(self, var):
+        return self.aggdata.aggDisplays[var].feature
 
     def prepareWeights(self, featuresAndCfs, offset=0):
         weights = {}
         for var in featuresAndCfs:
-            featureMapping = self.getMapping(var)
+            featureMapping = self.getEncoding(var)
             weights[var] = WeightsSet(featureMapping, offset)
             offset += featureMapping.Size
         return weights, offset

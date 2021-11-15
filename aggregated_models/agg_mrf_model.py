@@ -13,27 +13,22 @@ import pyspark.sql.functions as F
 from dataclasses import dataclass, asdict
 from joblib import Parallel, delayed
 from typing import Dict
-from aggregated_models.featuremappings import SingleFeatureMapping, CrossFeaturesMapping
+
 from aggregated_models.SampleSet import SampleSet, FullSampleSet
 from aggregated_models.SampleRdd import SampleRdd
-from aggregated_models import featureprojections
+from aggregated_models.aggdataset import AggDataset
+from aggregated_models.noiseDistributions import *
+from aggregated_models import CrossFeaturesSet
 from aggregated_models.baseaggmodel import BaseAggModel, WeightsSet
 from aggregated_models import Optimizers
-from aggregated_models.mrf_helpers import (
-    oneHotEncode,
-    ComputeRWpred,
-    fastGibbsSample,
-    fastGibbsSampleFromPY0,
-    VariableMRFParameters,
-    ConstantMRFParameters,
-    blockedGibbsSampler_PY0,
-)
+from aggregated_models.mrf_helpers import *
+from aggregated_models.FeatureEncodings import *
+
+
 import pyspark.sql.functions as F
 import pyspark.sql as ps
 import logging
-from aggregated_models.aggdataset import AggDataset, FeaturesSet
 from thx.hadoop.spark_config_builder import create_remote_spark_session, SparkSession
-from aggregated_models.noiseDistributions import *
 
 
 _log = logging.getLogger(__name__)
@@ -52,12 +47,12 @@ class AggMRFModelParams:
     clicksCfs: str = "*&*"
     sampleFromPY0: bool = False
     maxNbRowsPerSlice: int = 50
-
     nbGibbsIter: int = 1
     modifiedGradient: bool = True
     modifiedGradientForNoise: bool = False
     gaussiansigma: float = 0
     gibbsMaxNbModalities: int = 1
+    sampleMissingModalityInLearning: bool = False
 
 
 class AggMRFModel(BaseAggModel):
@@ -76,8 +71,8 @@ class AggMRFModel(BaseAggModel):
         self.regulL2 = config_params.regulL2
         self.gibbsMaxNbModalities = config_params.gibbsMaxNbModalities
 
-        self.displaysCfs = featureprojections.parseCFNames(self.features, config_params.displaysCfs)
-        self.clicksCfs = featureprojections.parseCFNames(self.features, config_params.clicksCfs)
+        self.displaysCfs = CrossFeaturesSet.parseCFNames(self.features, config_params.displaysCfs)
+        self.clicksCfs = CrossFeaturesSet.parseCFNames(self.features, config_params.clicksCfs)
 
         # batch Size for the Gibbs sampler. (too high => memory issues on large models)
         self.maxNbRowsPerSlice = config_params.maxNbRowsPerSlice
@@ -224,7 +219,8 @@ class AggMRFModel(BaseAggModel):
         for feature in self.features:
             weights = self.displayWeights[feature]
             proj = self.displayProjections[feature]
-            self.parameters[weights.indices] = np.log(np.maximum(proj.Data, self.priorDisplays)) - logNbDisplay
+            self.parameters[weights.indices] = np.log(np.maximum(proj.Data, self.priorDisplays))
+            self.parameters[weights.indices] -= self.parameters[weights.indices].mean()
 
     def prepareFit(self):
         self.setWeights()
@@ -257,9 +253,9 @@ class AggMRFModel(BaseAggModel):
             (w.offset, w.feature._fid) for w in weightsSet.values() if isinstance(w.feature, SingleFeatureMapping)
         ]
         cross_features = [
-            (w.offset, w.feature._fid1, w.feature._fid2, w.feature.coefV2, w.feature.Modulo)
+            (w.offset, w.feature._fid1, w.feature._fid2, w.feature.coefV2, w.feature.Size)
             for w in weightsSet.values()
-            if isinstance(w.feature, CrossFeaturesMapping)
+            if isinstance(w.feature, CrossFeatureEncoding)
         ]
 
         variableMRFParameters = df.sql_ctx.sparkSession.sparkContext.broadcast(VariableMRFParameters(self.parameters))
@@ -512,25 +508,25 @@ class AggMRFModel(BaseAggModel):
             modulos = []
             for w in weightsByVar[feature]:
                 offsets += [w.offset]
-                if type(w.feature) is CrossFeaturesMapping:
+                if type(w.feature) is CrossFeatureEncoding:
                     if feature == w.feature._v1:
                         coefsv += [1]
                         coefsv2 += [w.feature.coefV2]
                         otherfeatureid += [self.features.index(w.feature._v2)]
-                        modulos += [w.feature.Modulo]
+                        modulos += [w.feature.Size]
                         # formula for indice of the crossmodality (V1=v1,V2=v2) in the parameter vector is :
                         #  w.offset + v1 * coefsv + v2 * coefsv2
                     else:
                         coefsv += [w.feature.coefV2]
                         coefsv2 += [1]
                         otherfeatureid += [self.features.index(w.feature._v1)]
-                        modulos += [w.feature.Modulo]
+                        modulos += [w.feature.Size]
 
                 else:
                     coefsv += [1]
                     coefsv2 += [0]
                     otherfeatureid += [0]
-                    modulos += [w.feature.Modulo]
+                    modulos += [w.feature.Size]
 
             allcoefsv += [coefsv]
             allcoefsv2 += [coefsv2]
@@ -546,7 +542,10 @@ class AggMRFModel(BaseAggModel):
         modalitiesByVarId = []
         for i in range(0, len(self.features)):
             feature = self.features[i]
-            modalitiesByVarId.append(np.arange(0, self.displayWeights[feature].feature.Size - 1))
+            if self.config_params.sampleMissingModalityInLearning:
+                modalitiesByVarId.append(np.arange(0, self.displayWeights[feature].feature.Size))
+            else:
+                modalitiesByVarId.append(np.arange(0, self.displayWeights[feature].feature.Size - 1))
         modalitiesByVarId = (
             *(np.array(a) for a in modalitiesByVarId),
         )  # converting to tuple of np.array seems to make numba happier

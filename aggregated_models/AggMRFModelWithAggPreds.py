@@ -2,13 +2,14 @@ import numpy as np
 import pandas as pd
 
 from aggregated_models.agg_mrf_model import *
-from aggregated_models.aggdataset import AggDataset, FeaturesSet
+from aggregated_models.aggdataset import AggDataset
 
 from thx.hadoop.spark_config_builder import SparkSession
 from joblib import Parallel, delayed
 from aggregated_models.mrf_helpers import (
     fastGibbsSampleFromPY0_withAggPredictions,
 )
+
 
 class AggMRFModelWithAggPreds(AggMRFModel):
     def __init__(
@@ -23,7 +24,6 @@ class AggMRFModelWithAggPreds(AggMRFModel):
         self.linkFunctionId = linkFunctionId
         super().__init__(aggdata, config_params, sparkSession)
 
- 
     def setWeights(self):
         super().setWeights()
         self.offsetNu = len(self.parameters)
@@ -139,7 +139,6 @@ class AggMRFModelWithAggPreds(AggMRFModel):
             )
 
         return samples.rdd.map(sampling)
-
 
     def RunParallelGibbsSampler(self, samples, maxNbRows=1000):
         (

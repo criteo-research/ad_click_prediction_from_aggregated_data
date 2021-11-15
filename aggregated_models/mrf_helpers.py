@@ -5,8 +5,6 @@ from joblib import Parallel, delayed
 from numba import jit
 import numba
 
-from aggregated_models import featuremappings
-
 
 class VariableMRFParameters:
     def __init__(self, model):
@@ -399,71 +397,6 @@ def computeRaoBlackwellisedExpectations(
         # x[varId] = varnew
 
     return results
-
-
-def ComputeRWpred(model, samples=None, maxNbRows=1000, useNumba=True):
-    (
-        exportedDisplayWeights,
-        exportedClickWeights,
-        modalitiesByVarId,
-        parameters,
-    ) = model.exportWeightsAll()
-    start = 0
-    if samples is None:
-        samples = model.samples
-    py = samples.explambda / samples.expmu
-    # py  = py /(1+py)
-
-    rows = samples.data.transpose()
-    starts = np.arange(0, len(rows), maxNbRows)
-    slices = [(rows[start : start + maxNbRows], py[start : start + maxNbRows]) for start in starts]
-
-    if useNumba:
-
-        def myfun(s):
-            return computeRaoBlackwellisedExpectations_numba(
-                exportedDisplayWeights,
-                exportedClickWeights,
-                modalitiesByVarId,
-                parameters,
-                s[0],
-                s[1],
-            )
-
-    else:
-
-        def myfun(s):
-            return computeRaoBlackwellisedExpectations(
-                exportedDisplayWeights,
-                exportedClickWeights,
-                modalitiesByVarId,
-                parameters,
-                s[0],
-                s[1],
-            )
-
-    runner = Parallel(n_jobs=14)
-    jobs = [delayed(myfun)(myslice) for myslice in slices]
-    predsSlices = runner(jobs)
-
-    projection = np.array(predsSlices).sum(axis=0)
-
-    projection = projection / samples.Size * np.exp(model.muIntercept)
-    z0_on_z = 1 / np.mean((1 + samples.explambda / samples.expmu))  # = P(Y)
-    projection *= z0_on_z * (1 + np.exp(model.lambdaIntercept))
-
-    for w in model.displayWeights.values():
-        if type(w.feature) is featuremappings.CrossFeaturesMapping:
-            projection[w.indices] /= 2
-    for var in model.clickWeights:
-        w = model.clickWeights[var]
-        if type(w.feature) is featuremappings.CrossFeaturesMapping:
-            projection[w.indices] /= 2
-        wd = model.displayWeights[var]
-        projection[wd.indices] += projection[w.indices]
-
-    return projection
-    # samplesSlices = [ myfun(myslice) for myslice in  slices ]
 
 
 @jit(nopython=True)

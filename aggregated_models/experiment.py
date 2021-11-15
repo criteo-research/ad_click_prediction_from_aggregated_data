@@ -5,7 +5,7 @@ from aggregated_models.AggMRFModelWithAggPreds import *
 from aggregated_models.validation import MetricsComputer, LLH, NLlh
 from sklearn.metrics import roc_auc_score
 from aggregated_models.agg_mrf_model import AggMRFModel, AggMRFModelParams
-from aggregated_models.aggdataset import AggDataset, FeaturesSet
+from aggregated_models.aggdataset import AggDataset
 import numpy as np
 from pathlib import Path
 import thx.hadoop.hdfs_cache as hdfs
@@ -66,7 +66,7 @@ class Experiment:
 
     def loadAggdata(self):
         with open(self.aggdataPath, "rb") as handle:
-            self.aggdata = AggDataset.load(handle, self.ss)
+            self.aggdata = AggDataset.load(handle)
 
     def load(self):
         self.loadConfig()
