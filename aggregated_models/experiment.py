@@ -90,7 +90,7 @@ class Experiment:
         self.label = self.model.label
 
     def savemodel(self):
-        self.model.save(self.path + "model_temp")  ## quick&dirty "recover from crash during save"
+        # self.model.save(self.path + "model_temp")  ## quick&dirty "recover from crash during save"
         self.model.save(self.path + "model")
 
     def validate(self, test):
