@@ -54,6 +54,44 @@ def simpleGradientStep(
             endIterCallback()
 
 
+def FastWeightsGradientStep(
+    model,
+    nbiter,
+    alpha,
+    beta,
+    endIterCallback,
+    fastWeightsDecay=1,
+    alpha_decay=False,
+    beta_increase=False,
+    maxNbIters=1000,
+):
+
+    currentAlpha = alpha
+    currentBeta = beta
+
+    for i in range(1, nbiter + 1):
+        nbPreviousIters = model.nbIters
+        if alpha_decay:
+            currentAlpha = alpha * (maxNbIters - nbPreviousIters) / (maxNbIters)
+        if beta_increase:
+            currentBeta = beta * ((nbPreviousIters * 2 / 3) + maxNbIters / 3) / maxNbIters
+
+        print(f"simpleGradientStep iter={nbPreviousIters}  alpha={currentAlpha},beta={currentBeta}        ", end="\r")
+        g = model.computeGradient()
+        d = -g * model.computeInvHessianDiag()
+
+        maxgrad = 2.0
+        d[d > maxgrad] = maxgrad
+        d[d < -maxgrad] = -maxgrad
+
+        model.fastWeights *= fastWeightsDecay
+        model.fastWeights += currentBeta * d
+        model.setparameters(model.parameters + currentAlpha * d)
+
+        if endIterCallback is not None:
+            endIterCallback()
+
+
 def followGradWithLinesearch(
     model,
     nbiter=100,

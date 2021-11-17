@@ -54,6 +54,18 @@ class AggMRFModelParams:
     gibbsMaxNbModalities: int = 1
     sampleMissingModalityInLearning: bool = True
 
+    # Fast weights
+    useFastWeights: bool = False
+    useFastClicksWeights: bool = False
+    fastWeightsBeta: float = None
+    fastWeightsDecay: float = 1
+    alpha_decay: bool = False
+    beta_increase: bool = False
+    maxNbIters: int = 1000
+
+    # current nb iterations of the model. Updated during training.
+    nbIters: int = 0
+
 
 class AggMRFModel(BaseAggModel):
     def __init__(
@@ -111,6 +123,10 @@ class AggMRFModel(BaseAggModel):
     def setRegul(self, regulL2Click, regulL2):
         self.regulL2Click = regulL2Click
         self.regulL2 = regulL2
+
+    @property
+    def nbIters(self):
+        return self.config_params.nbIters
 
     @property
     def regulVector(self):
@@ -208,6 +224,16 @@ class AggMRFModel(BaseAggModel):
     def paggclicksvector(self):
         return self.pData[self.offsetClicks : self.offset]
 
+    @property
+    def currentParams(self):
+        if self.config_params.useFastWeights:
+            fastW = self.fastWeights.copy()
+            if self.config_params.useFastClicksWeights:
+                # adding "fast weights" only to the "mu" part of the model
+                fastW[self.offsetClicks : self.offset] = 0
+            return self.parameters + fastW
+        return self.parameters
+
     def initParameters(self):
         v0 = self.features[0]
         self.normgrad = 1.0
@@ -221,6 +247,9 @@ class AggMRFModel(BaseAggModel):
             proj = self.displayProjections[feature]
             self.parameters[weights.indices] = np.log(np.maximum(proj.Data, self.priorDisplays))
             self.parameters[weights.indices] -= self.parameters[weights.indices].mean()
+
+        if self.config_params.useFastWeights:
+            self.fastWeights = np.zeros(len(self.parameters))
 
     def prepareFit(self):
         self.setWeights()
@@ -482,12 +511,32 @@ class AggMRFModel(BaseAggModel):
         )
 
     def fit(self, nbIter=100, alpha=0.01):
-        Optimizers.simpleGradientStep(
-            self,
-            nbiter=nbIter,
-            alpha=alpha,
-            endIterCallback=lambda: self.updateAllSamplesWithGibbs(),
-        )
+        def endIterCallback():
+            self.config_params.nbIters += 1
+            self.updateAllSamplesWithGibbs()
+
+        if self.config_params.useFastWeights:
+            beta = self.config_params.fastWeightsBeta
+            if beta is None:
+                beta = alpha * 5
+            Optimizers.FastWeightsGradientStep(
+                self,
+                nbIter,
+                alpha,
+                beta,
+                endIterCallback,
+                fastWeightsDecay=self.config_params.fastWeightsDecay,
+                alpha_decay=self.config_params.alpha_decay,
+                beta_increase=self.config_params.beta_increase,
+                maxNbIters=self.config_params.maxNbIters,
+            )
+        else:
+            Optimizers.simpleGradientStep(
+                self,
+                nbiter=nbIter,
+                alpha=alpha,
+                endIterCallback=endIterCallback,
+            )
 
     # export data useful to compute dotproduct
     def exportWeights(self, weights):
@@ -564,10 +613,11 @@ class AggMRFModel(BaseAggModel):
             modalitiesByVarId,
             parameters,
         ) = self.exportWeightsAll()
+
+        parameters = self.currentParams  # with Fast Weights
+
         start = 0
-
         rows = samples.get_rows()
-
         starts = np.arange(0, len(rows), maxNbRows)
         slices = [(rows[start : start + maxNbRows], samples.y[start : start + maxNbRows]) for start in starts]
         nbGibbsSteps = self.nbGibbsIter

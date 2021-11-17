@@ -8,7 +8,9 @@ import numba
 
 class VariableMRFParameters:
     def __init__(self, model):
-        self.parameters = model.parameters
+
+        self.parameters = model.currentParams
+
         if not model.sampleFromPY0:
             self.parametersForPY1 = self.parameters.copy()
             for f in model.clickWeights:
