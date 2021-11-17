@@ -228,7 +228,7 @@ class AggMRFModel(BaseAggModel):
     def currentParams(self):
         if self.config_params.useFastWeights:
             fastW = self.fastWeights.copy()
-            if self.config_params.useFastClicksWeights:
+            if not self.config_params.useFastClicksWeights:
                 # adding "fast weights" only to the "mu" part of the model
                 fastW[self.offsetClicks : self.offset] = 0
             return self.parameters + fastW
@@ -728,6 +728,8 @@ class AggMRFModel(BaseAggModel):
             self.aggdata.dump(aggdata_fp)
 
         np.save(str(base_local_path / "parameters"), self.parameters)
+        if self.config_params.useFastWeights:
+            np.save(str(base_local_path / "fastweights"), self.fastWeights)
 
         try:
             sparkdf = self.samples.rddSamples.map(lambda x: [int(i) for i in x]).toDF()
@@ -761,6 +763,9 @@ class AggMRFModel(BaseAggModel):
             agg_dataset = AggDataset.load(aggdata_fp)
 
         model = AggMRFModel(agg_dataset, config_params=config_params, sparkSession=spark_session)
+        if model.config_params.useFastWeights:
+            model.fastWeights = np.load(load(base_local_path / "fastweights.npy"))
+
         params = np.load(str(base_local_path / "parameters.npy"))
         model.setparameters(params)
         if loadSamples:
