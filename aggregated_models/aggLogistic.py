@@ -14,7 +14,7 @@ from aggregated_models.baseaggmodel import BaseAggModel
 
 
 class AggLogistic(BaseAggModel):
-    def __init__(self, aggdata, features, clicksCfs="*&*", regulL2=1.0):
+    def __init__(self, aggdata, features, clicksCfs="*&*", regulL2=1.0, rescaling=True):
         super().__init__(aggdata, features)
         self.regulL2 = regulL2
         self.clicksCfs = CrossFeaturesSet.parseCFNames(self.features, clicksCfs)
@@ -23,10 +23,11 @@ class AggLogistic(BaseAggModel):
         self.initParameters()
         self.nbCoefs = sum([w.feature.Size for w in self.clickWeights.values()])
         self.Data = self.getAggDataVector(self.clickWeights, self.clickProjections)
+        self.rescaling = rescaling
 
     def setProjections(self):
-        fs = self.features + self.clicksCfs
-        self.clickProjections = {var: self.aggdata.aggClicks[var] for var in fs}
+        self.fs = self.features + self.clicksCfs
+        self.clickProjections = {var: self.aggdata.aggClicks[var] for var in self.fs}
 
     def setWeights(self):
         featuresAndCfs = self.features + self.clicksCfs
@@ -44,6 +45,17 @@ class AggLogistic(BaseAggModel):
     def prepareFit(self, df):
         self.setDisplays(df)
         self.update()
+        self.setRescalingRatio()
+
+    def setRescalingRatio(self):
+        self.nbsamples = self.samples.shape[1]
+        self.globalRescaling = self.aggdata.Nbdisplays / self.nbsamples
+
+        if self.rescaling:
+            self.displaysProjections = {var: self.aggdata.aggDisplays[var] for var in self.fs}
+            self.aggregatedDisplays = self.getAggDataVector(self.clickWeights, self.displaysProjections)
+            self.aggregatedDisplaysInSamples = self.project(np.ones(self.nbsamples))
+            self.rescalingRatio = (self.aggregatedDisplaysInSamples + 1) / (self.aggregatedDisplays + 1)
 
     def predictDFinternal(self, df, pred_col_name: str):
         dotprods = self.dotproductsOnDF(self.clickWeights, df) + self.lambdaIntercept
@@ -59,10 +71,13 @@ class AggLogistic(BaseAggModel):
         self.predictinternal()
 
     def getPredictionsVector(self):
+        return self.project(self.pclick)
+
+    def project(self, v):
         x = self.parameters * 0
         for w in self.clickWeights.values():
-            x[w.indices] = w.feature.Project_(self.samples, self.pclick)
-        return x
+            x[w.indices] = w.feature.Project_(self.samples, v)
+        return x * self.globalRescaling
 
     # Computing approx LLH, (not true LLH)
     def computeLoss(self, epsilon=1e-12):
@@ -79,7 +94,10 @@ class AggLogistic(BaseAggModel):
 
     # grad of "exact" loss
     def computeGradient(self):  # grad of loss
-        gradient = -self.Data + self.getPredictionsVector()
+        preds = self.getPredictionsVector()
+        gradient = -self.Data + preds
+        if self.rescaling:
+            gradient = -self.Data * np.minimum(1, self.rescalingRatio) + preds / np.maximum(1, self.rescalingRatio)
         gradient += 2 * self.parameters * self.regulL2
         self.normgrad = sum(gradient * gradient)
         return gradient
