@@ -52,7 +52,7 @@ class AggMRFModelParams:
     modifiedGradientForNoise: bool = False
     gaussiansigma: float = 0
     gibbsMaxNbModalities: int = 1
-    sampleMissingModalityInLearning: bool = False
+    sampleMissingModalityInLearning: bool = True
 
 
 class AggMRFModel(BaseAggModel):
