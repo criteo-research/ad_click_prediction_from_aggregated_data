@@ -2,6 +2,8 @@ from dataclasses import dataclass
 import pandas as pd
 import pickle
 import pyspark.sql.functions as F
+from typing import Dict, List
+
 from aggregated_models.diff_priv_noise import GaussianMechanism, LaplaceMechanism
 from aggregated_models.CrossFeaturesSet import CrossFeaturesSet
 
@@ -15,8 +17,13 @@ class DataProjection:
     Data: np.array
 
     @staticmethod
-    def FromDF(feature: IEncoding, df: pd.DataFrame, colName):
+    def FromDF(feature: IEncoding, df: pd.DataFrame, colName: str):
         data = feature.ProjectDF(df, colName)
+        return DataProjection(feature, colName, data)
+
+    @staticmethod
+    def Zeros(feature: IEncoding, colName: str):
+        data = np.zeros(feature.Size)
         return DataProjection(feature, colName, data)
 
     def _build(self, feature, data, colName):
@@ -46,11 +53,28 @@ class DataProjection:
         self.Data += self.feature.ProjectDF(df, self.colName)
 
 
-class AggDataset:
-    _DISPLAY_COL_NAME = "display"
+_DISPLAY_COL_NAME = "display"
 
-    def __init__(
-        self,
+
+@dataclass
+class AggDataset:
+    featuresSet: CrossFeaturesSet
+    columns: List[str]
+    epsilon0: float = None
+    delta: float = None
+    removeNegativeValues: bool = False
+
+    def __post_init__(self):
+        self._DISPLAY_COL_NAME = self.columns[0]
+        self.aggregations = {}
+        for col in self.columns:
+            self.aggregations[col] = {
+                encoding.Name: DataProjection.Zeros(encoding, col) for encoding in self.featuresSet.encodings.values()
+            }
+        self.AggregationSums = {col: 0 for col in self.columns}
+
+    @staticmethod
+    def FromDF(
         dataframe,
         features,
         cf="*&*",
@@ -61,21 +85,16 @@ class AggDataset:
         removeNegativeValues=False,
         maxNbModalities=None,
     ):
-        if dataframe is None:
-            return
-
-        self.epsilon0 = epsilon0
-        self.delta = delta
-        self.removeNegativeValues = removeNegativeValues
-
-        self.featuresSet = CrossFeaturesSet.FromDf(dataframe, features, maxNbModalities, "*&*")
-        self.columns = [self._DISPLAY_COL_NAME, label] + otherCols
+        featuresSet = CrossFeaturesSet.FromDf(dataframe, features, maxNbModalities, "*&*")
+        columns = [_DISPLAY_COL_NAME, label] + otherCols
+        self = AggDataset(featuresSet, columns, epsilon0, delta, removeNegativeValues)
         self.aggregate(dataframe)
-
         if epsilon0 is not None:
             self.MakeDiffPrivate(epsilon0, delta, removeNegativeValues)
         else:
             self.noiseDistribution = None
+
+        return self
 
     def aggregate(self, dataframe):
         if isinstance(dataframe, pd.DataFrame):
@@ -84,19 +103,10 @@ class AggDataset:
             dataframe = dataframe.withColumn(self._DISPLAY_COL_NAME, F.lit(1))
 
         dataframe = self.featuresSet.transformDf(dataframe)
-        self.aggregations = {}
-        self.AggregationSums = {}
-
         for col in self.columns:
-            self.aggregations[col] = {
-                encoding.Name: DataProjection.FromDF(encoding, dataframe, col)
-                for encoding in self.featuresSet.encodings.values()
-            }
+            for p in self.aggregations[col].values():
+                p.Add(dataframe)
             self.AggregationSums[col] = self.aggregations[col][self.features[0]].Data.sum()
-
-    @property
-    def features(self):
-        return self.featuresSet.features
 
     @property
     def features(self):
@@ -164,19 +174,23 @@ class AggDataset:
 
     @staticmethod
     def load(handle):
-        self = AggDataset(None, None)
-        self.featuresSet = CrossFeaturesSet.load(handle)
-        self.columns = pickle.load(handle)
-        self.aggregations = {}
-        for col in self.columns:
+        featuresSet = CrossFeaturesSet.load(handle)
+        columns = pickle.load(handle)
+        aggregations = {}
+        for col in columns:
             aggRaw = pickle.load(handle)
             agg = {}
             for k in aggRaw:
-                feature = self.featuresSet.encodings[k]
+                feature = featuresSet.encodings[k]
                 agg[k] = DataProjection(feature, col, aggRaw[k])
-            self.aggregations[col] = agg
-        self.AggregationSums = pickle.load(handle)
-        self.epsilon0 = pickle.load(handle)
-        self.delta = pickle.load(handle)
-        self.removeNegativeValues = pickle.load(handle)
+            aggregations[col] = agg
+        AggregationSums = pickle.load(handle)
+        epsilon0 = pickle.load(handle)
+        delta = pickle.load(handle)
+        removeNegativeValues = pickle.load(handle)
+
+        self = AggDataset(featuresSet, columns, epsilon0, delta, removeNegativeValues)
+        self.aggregations = aggregations
+        self.AggregationSums = AggregationSums
+
         return self
