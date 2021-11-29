@@ -24,6 +24,7 @@ class AggLogistic(BaseAggModel):
         self.nbCoefs = sum([w.feature.Size for w in self.clickWeights.values()])
         self.Data = self.getAggDataVector(self.clickWeights, self.clickProjections)
         self.rescaling = rescaling
+        self.nbIters = 0
 
     def setProjections(self):
         self.fs = self.features + self.clicksCfs
@@ -73,6 +74,10 @@ class AggLogistic(BaseAggModel):
     def getPredictionsVector(self):
         return self.project(self.pclick)
 
+    @property
+    def pData(self):
+        return self.project(self.pclick)
+
     def project(self, v):
         x = self.parameters * 0
         for w in self.clickWeights.values():
@@ -98,24 +103,47 @@ class AggLogistic(BaseAggModel):
         gradient = -self.Data + preds
         if self.rescaling:
             gradient = -self.Data * np.minimum(1, self.rescalingRatio) + preds / np.maximum(1, self.rescalingRatio)
+            gradient = -self.Data * self.rescalingRatio + preds
+
         gradient += 2 * self.parameters * self.regulL2
         self.normgrad = sum(gradient * gradient)
         return gradient
 
     def computeInvHessianDiagAtOptimum(self):  # grad of loss
-        return 1 / (self.regulL2 * 2 + self.Data)
+        return 1 / (self.regulL2 * 2 + self.Data * self.rescalingRatio)
 
-    def computeInvHessianDiag(self, alpha=0.9):  # grad of loss
+    def computeInvHessianDiag(self, alpha=0.5):  # grad of loss
         preds = self.getPredictionsVector()
-        preds = preds * alpha + self.Data * (1 - alpha)  # averaging with value at optimum
+        preds = (1 - alpha) * self.Data * np.minimum(1, self.rescalingRatio) + alpha * preds / np.maximum(
+            1, self.rescalingRatio
+        )
+        # preds = preds * alpha + self.Data * (1 - alpha)  # averaging with value at optimum
         return 1 / (self.regulL2 * 2 + preds)
 
-    def fit(self, train, nbIter=50, verbose=False):
+    def fitOld(self, train, nbIter=50, verbose=False):
         try:
             self.samples
         except Exception:
             self.prepareFit(train)
         Optimizers.lbfgs(self, nbiter=nbIter, alpha=0.01, verbose=verbose)
+
+    def fit(self, train, nbIter=50, alpha=0.01):
+        try:
+            self.samples
+        except Exception:
+            self.prepareFit(train)
+        self.fitSimple(nbIter, alpha)
+
+    def fitSimple(self, nbIter=100, alpha=0.01):
+        def endIterCallback():
+            self.nbIters += 1
+
+        Optimizers.simpleGradientStep(
+            self,
+            nbiter=nbIter,
+            alpha=alpha,
+            endIterCallback=endIterCallback,
+        )
 
     def computeExactLoss(self, df):
         p = self.predictDF(df, "pclick").pclick.values

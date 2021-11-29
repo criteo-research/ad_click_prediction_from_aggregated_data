@@ -99,7 +99,7 @@ class CrossFeaturesSet:
         return ",".join(f.Name for f in self.encodings.values())
 
     def fix_fids(self, features_sublist):
-        print("baseAggModel::fix_fids ")
+        # print("baseAggModel::fix_fids ")
         fid = 0
         encodings = self.encodings
         for f in features_sublist:
