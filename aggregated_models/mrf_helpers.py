@@ -903,3 +903,65 @@ def fastGibbsSampleFromPY0_withAggPredictions(
             kx_dot_params_f0 = theta0s[varnew]
 
     return x
+
+
+from numba import jit
+
+
+@jit(nopython=True)
+def ComputeKernel_OneSample(x, coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector):
+    mus = np.zeros(len(modalities))
+    for varJ in np.arange(0, len(coefsv)):
+        modulo = modulos[varJ]
+        modsJ = x[otherfeatureid[varJ]] * coefsv2[varJ]
+        mods = modalities * coefsv[varJ]
+        crossmods = (modsJ + mods) % modulo + offsets[varJ]
+        mus += paramsVector[crossmods]
+    p = np.exp(mus)
+    p = p / p.sum()
+    return p
+
+
+@jit(nopython=True)
+def SampleFromKernel(samples, coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector):
+    nbsamples = samples.shape[0]
+    y = np.zeros(nbsamples, dtype=np.int32)
+    for i, x in enumerate(samples):
+        y[i] = SampleOneFromKernel(x, coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector)
+    return y
+
+
+@jit(nopython=True)
+def SampleOneFromKernel(x, coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector):
+    probas = ComputeKernel_OneSample(x, coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector)
+    varnew = weightedSampleNUMBA(probas)
+    return varnew
+
+
+@jit(nopython=True)
+def ComputeKernel(samples, coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector):
+    nbsamples = samples.shape[0]
+    mus = np.zeros((nbsamples, len(modalities)))
+    for i, x in enumerate(samples):
+        mus[i] = ComputeKernel_OneSample(x, coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector)
+    return mus
+
+
+@jit(nopython=True)
+def AddExpectedK_oneSample(pData, x, coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector):
+
+    p = ComputeKernel_OneSample(x, coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector)
+    for varJ in np.arange(0, len(coefsv)):
+        modulo = modulos[varJ]
+        modsJ = x[otherfeatureid[varJ]] * coefsv2[varJ]
+        mods = modalities * coefsv[varJ]
+        crossmods = (modsJ + mods) % modulo + offsets[varJ]
+        pData[crossmods] += p
+
+
+@jit(nopython=True)
+def ExpectedK(samples, coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector):
+    pData = np.zeros(len(paramsVector))
+    for x in samples:
+        AddExpectedK_oneSample(pData, x, coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector)
+    return pData
