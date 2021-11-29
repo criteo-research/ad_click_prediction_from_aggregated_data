@@ -606,6 +606,9 @@ class AggMRFModel(BaseAggModel):
         )
 
     def RunParallelGibbsSampler(self, samples, maxNbRows=1000):
+        nbGibbsSteps = self.nbGibbsIter
+        if nbGibbsSteps == 0:
+            return samples.columns
         samples.sampleY()
         (
             exportedDisplayWeights,
@@ -620,7 +623,6 @@ class AggMRFModel(BaseAggModel):
         rows = samples.get_rows()
         starts = np.arange(0, len(rows), maxNbRows)
         slices = [(rows[start : start + maxNbRows], samples.y[start : start + maxNbRows]) for start in starts]
-        nbGibbsSteps = self.nbGibbsIter
 
         def myfun(s):
             s = fastGibbsSample(
@@ -788,6 +790,7 @@ class AggMRFModel(BaseAggModel):
 
         constantMRFParameters = samples.constantMRFParameters
         variableMRFParameters = samples.variableMRFParameters
+        sampleFromPY0 = self.sampleFromPY0
 
         def compute_explambda(x):
             lambdas = 0
@@ -799,13 +802,16 @@ class AggMRFModel(BaseAggModel):
         def prepareX(x):
             explambda = compute_explambda(x)
 
-            w = 1 + explambda
+            py = explambda / (1 + explambda)
+            w = (
+                1 + explambda if sampleFromPY0 else 1
+            )  # importance weight (Unormalized, we normalize later by the average of the weights)
             proj_display = oneHotEncode(x, constantMRFParameters.value.explosedDisplayWeights)
             proj_click = oneHotEncode(x, constantMRFParameters.value.explosedClickWeights)
 
             return (
                 (proj_display, w),
-                (proj_click, explambda),
+                (proj_click, py * w),
                 ([-1], w),  # Keeping index '-1' to get sums of edisplays for normalization
             )
 
