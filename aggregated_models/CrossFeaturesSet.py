@@ -54,6 +54,10 @@ class CrossFeaturesSet:
     def features(self):
         return self.rawFeaturesSet.features
 
+    @property
+    def mappings(self):
+        return self.rawFeaturesSet.rawmappings
+
     def build(self):
         self.crossfeatures = parseCF(self.features, self.crossfeaturesStr)
         allfeatures = [f for cf in self.crossfeatures for f in cf]

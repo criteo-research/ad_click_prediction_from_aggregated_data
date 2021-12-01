@@ -12,18 +12,18 @@ class RawFeatureMapping:
     """class representing one feature and its set of modalities."""
 
     Name: str
-    _modalities: List[int]
+    _dicoModalityToId: Dict[int, int]
 
     def __post_init__(self):
-        self._dicoModalityToId = {m: i for i, m in enumerate(self._modalities)}
         self._modalities_broadcast = None
-        self.Size = len(self._modalities) + 1  # +1 for "unknown" modality
-        self._default = len(self._modalities)
+        self._default = max(self._dicoModalityToId.values()) + 1
+        self.Size = self._default + 1
 
     @staticmethod
     def FromDF(name: str, df):
         modalities = RawFeatureMapping.getModalities(df, name)
-        return RawFeatureMapping(name, modalities)
+        dicoModalityToId = {m: i for i, m in enumerate(modalities)}
+        return RawFeatureMapping(name, dicoModalityToId)
 
     # list of modalities observed in df
     @staticmethod
@@ -45,7 +45,7 @@ class RawFeatureMapping:
 
     def dump(self, handle):
         pickle.dump(self.Name, handle)
-        pickle.dump(self._modalities, handle)
+        pickle.dump(self._dicoModalityToId, handle)
 
     @staticmethod
     def load(handle, ss=None):
@@ -59,9 +59,10 @@ class RawFeatureMapping:
     def setBroadCast(self, sql_ctx):
         if self._modalities_broadcast is not None:
             return
-        modalitiesInt = [int(x) for x in self._modalities]  # Making sure with have 'int', not 'numpy.int64'
         self._modalities_broadcast = F.broadcast(
-            sql_ctx.createDataFrame([[index, x] for index, x in enumerate(modalitiesInt)], schema=("id", self.Name))
+            sql_ctx.createDataFrame(
+                [[int(newMod), int(oldMod)] for oldMod, newMod in _dicoModalityToId.items()], schema=("id", self.Name)
+            )
         ).persist()
 
     # replace initial modalities of features by modality index
