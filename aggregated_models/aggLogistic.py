@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from aggregated_models import CrossFeaturesSet
 from aggregated_models import Optimizers
 from aggregated_models.baseaggmodel import BaseAggModel
@@ -36,7 +37,12 @@ class AggLogistic(BaseAggModel):
         self.parameters = np.zeros(offset)
 
     def setDisplays(self, train):
-        self.samples = self.DfToX(train)
+        if type(train) is pd.DataFrame:
+            self.samples = self.DfToX(train)
+        elif type(train) is np.ndarray:
+            self.samples = train
+        else:
+            raise Exception("unkown type in aggLogistic.setDiaplays", type(train))
 
     def initParameters(self):
         nbclicks = self.aggdata.Nbclicks
