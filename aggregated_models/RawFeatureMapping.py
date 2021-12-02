@@ -88,6 +88,49 @@ class RawFeatureMapping:
     def Values(self, df: pd.DataFrame):
         return df[self.Name].values
 
+    @staticmethod
+    def BuildCtrBuckets(name: str, df, logbase=10, nbStd=1):
+        dicoModalityToId = RawFeatureMapping.ctrBucketsMapping(name, df, logbase, nbStd)
+        return RawFeatureMapping(name, dicoModalityToId)
+
+    @staticmethod
+    def ctrBucketsMapping(f, df, logbase, nbStd):
+
+        df["d"] = 1
+        df = df.groupby(f).sum()
+        df = df.reset_index()
+        df = df.reset_index()
+
+        def getThreesholds(gaussianStd, maxN=1_000_000, nbStd=1.0):
+            ts = []
+            c = 1 + gaussianStd
+            while c < maxN:
+                std = np.sqrt(c) + gaussianStd
+                c += nbStd * std
+                ts.append(c)
+            return np.array(ts)
+
+        allThreeshold = getThreesholds(10, df.click.max(), nbStd)
+        prior = df.click.sum() / df.d.sum()
+        df["roundedD"] = roundedD = logbase ** (1 + np.floor(np.log10(df.d) / np.log10(logbase)))
+        d = df.d.values
+        c = df.click.values
+        df["ctr"] = ctr = (c + prior) / (d + 1)
+        c_at_roundedD = ctr * roundedD
+        import bisect
+
+        df["ctrBucketId"] = [bisect.bisect(allThreeshold, x) for x in c_at_roundedD]
+        # priorStd = np.sqrt( prior * (1-prior ) *  roundedD )/roundedD
+        # priorStd *= nbStd
+        # df["ctrBucketId"] = np.floor (ctr/priorStd) * priorStd
+        df["key"] = list(zip(df["roundedD"].values, df["ctrBucketId"].values))
+        allkeys = sorted(set(df["key"].values))
+        len(allkeys)
+        keysDico = {k: i for i, k in enumerate(allkeys)}
+        df["newid"] = [keysDico[k] for k in df["key"].values]
+        dicoOldModalityToNewModality = {old: new for old, new in zip(df[f], df["newid"])}
+        return dicoOldModalityToNewModality
+
 
 class RawFeaturesSet:
     def __init__(self, features, rawmappings):
