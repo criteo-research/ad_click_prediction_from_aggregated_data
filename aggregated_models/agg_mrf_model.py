@@ -54,6 +54,7 @@ class AggMRFModelParams:
     gibbsMaxNbModalities: int = 1
     sampleMissingModalityInLearning: bool = True
 
+    muStepSizeMultiplier: float = None
     # Fast weights
     useFastWeights: bool = False
     useFastClicksWeights: bool = False
@@ -531,6 +532,9 @@ class AggMRFModel(BaseAggModel):
                 maxNbIters=self.config_params.maxNbIters,
             )
         else:
+            if self.config_params.muStepSizeMultiplier is not None:
+                alpha = np.ones( len( self.parameters )) * alpha
+                alpha[:self.offsetClicks] *= self.config_params.muStepSizeMultiplier
             Optimizers.simpleGradientStep(
                 self,
                 nbiter=nbIter,
