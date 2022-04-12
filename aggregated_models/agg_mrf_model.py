@@ -49,7 +49,7 @@ class AggMRFModelParams:
     maxNbRowsPerSlice: int = 50
     nbGibbsIter: int = 1
     modifiedGradient: bool = True
-    modifiedGradientForNoise: bool = False
+    modifiedGradientForNoise: bool = True
     gaussiansigma: float = 0
     gibbsMaxNbModalities: int = 1
     sampleMissingModalityInLearning: bool = True
