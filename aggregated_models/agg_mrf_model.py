@@ -66,6 +66,8 @@ class AggMRFModelParams:
 
     # current nb iterations of the model. Updated during training.
     nbIters: int = 0
+        
+    multinomialRescaling: bool = False
 
 
 class AggMRFModel(BaseAggModel):

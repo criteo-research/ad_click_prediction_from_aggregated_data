@@ -1,8 +1,11 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional
-from pyspark.sql import DataFrame
-import pyspark.sql.functions as F
+try:
+    from pyspark.sql import DataFrame
+    import pyspark.sql.functions as F
+except:
+    print("failed to load pyspark")
 import pickle
 from dataclasses import dataclass
 
@@ -28,10 +31,10 @@ class RawFeatureMapping:
     # list of modalities observed in df
     @staticmethod
     def getModalities(df, name):
-        if type(df) is DataFrame:
-            return RawFeatureMapping.getModalitiesSpark(df, name)
-        else:
+        if type(df) is pd.DataFrame:
             return RawFeatureMapping.getModalitiesPandas(df, name)
+        else:
+            return RawFeatureMapping.getModalitiesSpark(df, name)
 
     @staticmethod
     def getModalitiesPandas(df, name):
@@ -67,11 +70,13 @@ class RawFeatureMapping:
 
     # replace initial modalities of features by modality index
     def Map(self, df):
-        if type(df) is DataFrame:
-            return self.MapSpark(df)
-        return self.MapPandas(df)
+        if type(df) is pd.DataFrame:
+            return self.MapPandas(df)
+        return self.MapSpark(df)
+        
 
-    def MapSpark(self, df: DataFrame) -> DataFrame:
+    # def MapSpark(self, df: DataFrame) -> DataFrame:
+    def MapSpark(self, df):
         self.setBroadCast(df.sql_ctx)
         return (
             df.join(self._modalities_broadcast, on=self.Name, how="left")
@@ -89,17 +94,19 @@ class RawFeatureMapping:
         return df[self.Name].values
 
     @staticmethod
-    def BuildCtrBuckets(name: str, df, logbase=10, nbStd=1):
-        dicoModalityToId = RawFeatureMapping.ctrBucketsMapping(name, df, logbase, nbStd)
-        return RawFeatureMapping(name, dicoModalityToId)
+    def BuildCtrBuckets(name: str, df, logbase=10, nbStd=1, gaussianStd=10):
+        df["d"] = 1
+        df = df.groupby(name).sum()
+        df = df.reset_index()
+        return RawFeatureMapping.BuildCtrBucketsFromAggDf( name, df, logbase, nbStd, gaussianStd)
 
     @staticmethod
-    def ctrBucketsMapping(f, df, logbase, nbStd):
-
-        df["d"] = 1
-        df = df.groupby(f).sum()
-        df = df.reset_index()
-        df = df.reset_index()
+    def BuildCtrBucketsFromAggDf(name: str, df, logbase, nbStd, gaussianStd):
+        dicoModalityToId = RawFeatureMapping.ctrBucketsMapping(name, df, logbase, nbStd, gaussianStd)
+        return RawFeatureMapping(name, dicoModalityToId)
+    
+    @staticmethod
+    def ctrBucketsMapping(f, df, logbase, nbStd, gaussianStd):
 
         def getThreesholds(gaussianStd, maxN=1_000_000, nbStd=1.0):
             ts = []
@@ -110,7 +117,7 @@ class RawFeatureMapping:
                 ts.append(c)
             return np.array(ts)
 
-        allThreeshold = getThreesholds(10, df.click.max(), nbStd)
+        allThreeshold = getThreesholds(gaussianStd , df.click.max() * logbase, nbStd)
         prior = df.click.sum() / df.d.sum()
         df["roundedD"] = roundedD = logbase ** (1 + np.floor(np.log10(df.d) / np.log10(logbase)))
         d = df.d.values
@@ -163,6 +170,7 @@ class RawFeaturesSet:
                 df = var.Map(df)
             else:
                 print("warning:: RawFeaturesSet.Map :: feature " + var.Name + " not found in df")
+                toto
         return df
 
     def __repr__(self):

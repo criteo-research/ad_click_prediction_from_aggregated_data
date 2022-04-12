@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 import pandas as pd
 import pickle
-import pyspark.sql.functions as F
+try:
+    import pyspark.sql.functions as F
+except:
+    print("failed to load pyspark")
 from typing import Dict, List
 
 from aggregated_models.diff_priv_noise import GaussianMechanism, LaplaceMechanism

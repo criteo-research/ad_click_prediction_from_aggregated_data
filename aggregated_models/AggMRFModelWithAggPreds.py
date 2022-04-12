@@ -16,14 +16,23 @@ class AggMRFModelWithAggPreds(AggMRFModel):
         self,
         aggdata: AggDataset,
         config_params: AggMRFModelParams,
-        theta0,
+        theta0WithoutIntercept,
+        theta0Intercept,
         sparkSession: Optional[SparkSession] = None,
         linkFunctionId: int = 1,  #  0 -> Identity  , 1 -> sigmoid, 2 -> exp
     ):
-        self.theta0 = theta0
+        self.theta0WithoutIntercept = theta0WithoutIntercept
+        self.theta0Intercept = theta0Intercept
         self.linkFunctionId = linkFunctionId
         super().__init__(aggdata, config_params, sparkSession)
-
+    
+    @property
+    def theta0(self):
+        indvar1 = self.displayWeights[ self.features[0]].indices
+        theta0 = self.theta0WithoutIntercept.copy()
+        theta0[ indvar1 ] +=  self.theta0Intercept
+        return theta0
+    
     def setWeights(self):
         super().setWeights()
         self.offsetNu = len(self.parameters)
