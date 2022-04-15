@@ -49,6 +49,8 @@ class AggMRFModelParams:
     maxNbRowsPerSlice: int = 50
     nbGibbsIter: int = 1
     modifiedGradient: bool = True
+    separateSamplesForNoise: bool = False
+    useBetaPrior: bool = False
     modifiedGradientForNoise: bool = True
     gaussiansigma: float = 0
     gibbsMaxNbModalities: int = 1
@@ -175,6 +177,8 @@ class AggMRFModel(BaseAggModel):
 
     def setSamples(self):
         self.samples = self.buildSamples()
+        if self.config_params.separateSamplesForNoise: 
+            self.samplesForNoise = self.buildSamples()
 
     @property
     def displayProjections(self):
@@ -316,6 +320,8 @@ class AggMRFModel(BaseAggModel):
 
     def update(self):
         self.predictinternal(self.samples)
+        if self.config_params.separateSamplesForNoise: 
+            self.predictinternal(self.samplesForNoise)        
 
     def updateSamplesWithGibbs(self, samples):
         samples.UpdateSampleWithGibbs(self, self.nbGibbsIter)
@@ -366,10 +372,13 @@ class AggMRFModel(BaseAggModel):
             print("exception while computing predictions. Retrying:")
             predictions = self.getPredictionsVector(samples)
 
+        noise = self.Data * 0    
         if self.noiseDistribution is not None:
-            noise = self.expectedNoise(predictions, samples)
-        else:
-            noise = self.Data * 0
+            if self.config_params.separateSamplesForNoise:
+                noise = self.expectedNoise( None, self.samplesForNoise)
+            else:
+                noise = self.expectedNoise(predictions, samples)
+
 
         gradient = -self.Data + predictions + noise  # - (data-noise - preds)
 
@@ -410,6 +419,11 @@ class AggMRFModel(BaseAggModel):
     def expectedNoiseIndepApprox(self, predictions, samples=None):
         if predictions is None:
             predictions = self.getPredictionsVector(samples)
+        if self.config_params.useBetaPrior:  
+            return expectedGaussianKnowingDataPlusNoiseAndSampledDataExpect(  self.Data, predictions,
+                                  self.gaussiansigma,
+                                  self.aggdata.Nbdisplays,
+                                   self.config_params.nbSamples ) 
         return self.noiseDistribution.expectedNoiseApprox(self.Data, predictions)
 
     def sampleNoiseProba(self, samples):
@@ -469,6 +483,8 @@ class AggMRFModel(BaseAggModel):
 
     def updateAllSamplesWithGibbs(self):
         self.updateSamplesWithGibbs(self.samples)
+        if self.config_params.separateSamplesForNoise:
+            self.updateSamplesWithGibbs(self.samplesForNoise)        
 
     def buildSamplesRddFromSampleSet(self, samples):
         return self.buildSamplesRddFromData(samples.get_rows())
