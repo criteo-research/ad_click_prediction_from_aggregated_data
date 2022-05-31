@@ -18,8 +18,7 @@ setuptools.setup(
     name="aggregated-models",
     version="0.0.1",
     install_requires=_INSTALL_REQUIRES,
-    tests_require=_read_reqs("tests-requirements.txt"),
     dependency_links=[],
-    data_files=[(".", ["requirements.txt", "tests-requirements.txt"])],
+    data_files=[(".", ["requirements.txt"])],
     packages=setuptools.find_packages(),
 )

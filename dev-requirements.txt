@@ -1,8 +1,0 @@
-pip==21.0.1
-black
-pylama
-pylint
-mypy
-autopep8
-nbconvert
-nbconflux
