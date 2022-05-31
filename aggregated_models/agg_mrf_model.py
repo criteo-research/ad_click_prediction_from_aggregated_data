@@ -517,7 +517,9 @@ class AggMRFModel(BaseAggModel):
             samples.get_rows(),
         )
 
-    def fit(self, nbIter=100, alpha=0.01):
+    def fit(self, nbIter=100, alpha=None):
+        if alpha is None:
+            alpha = 0.5 / len(self.clickWeights)
         def endIterCallback():
             self.config_params.nbIters += 1
             self.updateAllSamplesWithGibbs()

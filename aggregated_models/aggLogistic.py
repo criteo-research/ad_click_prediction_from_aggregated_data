@@ -173,9 +173,11 @@ class AggLogistic(BaseAggModel):
         # preds = preds * alpha + self.Data * (1 - alpha)  # averaging with value at optimum
         return 1 / (self.regulL2 * 2 + preds)
 
-    def fit(self, train, nbIter=50, alpha=0.01):
+    def fit(self, train, nbIter=50, alpha=None):
         if not hasattr(self, "samples"):
             self.prepareFit(train)
+        if alpha is None:
+            alpha = 0.5 / len(self.clickWeights)
         self.fitSimple(nbIter, alpha)
 
     def fitSimple(self, nbIter=100, alpha=0.01):
