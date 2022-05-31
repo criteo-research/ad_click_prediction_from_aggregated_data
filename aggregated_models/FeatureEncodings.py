@@ -135,14 +135,14 @@ class CrossFeatureEncoding(IEncoding):
         if self.hashed:
             return "hash" + self.Name
         return self.Name
-    
+
     def marginalize(self, y: np.ndarray, fname):
         if len(y) != self.Size:
             raise ValueError(f"{this}::marginalize len(y)={len(y)} != Size={self.Size}")
         values = self.modalitiesOtherFeature(fname)
-        return projectNUMBA(values, y, len(set(values)) )
-    
-    def modalitiesOtherFeature(self,fname):
+        return projectNUMBA(values, y, len(set(values)))
+
+    def modalitiesOtherFeature(self, fname):
         if fname == self._f1.Name:
             values = self._f2modalities()
         elif fname == self._f2.Name:
@@ -150,16 +150,16 @@ class CrossFeatureEncoding(IEncoding):
         else:
             raise ValueError(f"{this}::marginalize: unknown name {fname}")
         return values
-    
+
     def _f1modalities(self):
-        return np.arange(0, self.Size ) % self._f1.Size
+        return np.arange(0, self.Size) % self._f1.Size
+
     def _f2modalities(self):
-        return np.arange(0, self.Size ) // self._f1.Size
+        return np.arange(0, self.Size) // self._f1.Size
 
     def fromIndepProbas(self, x1: np.ndarray, x2: np.ndarray):
-        return np.outer(x1,x2).flatten()
+        return np.outer(x1, x2).flatten()
 
-    
     @staticmethod
     def FromSingleFeatureEncodings(f1, f2, maxSize=None):
         size = f1.Size * f2.Size

@@ -10,17 +10,9 @@ import os
 from aggregated_models.agg_mrf_model import *
 from aggregated_models.aggLogistic import AggLogistic
 
+
 class MultinomialAggLogistic(BaseAggModel):
-    def __init__(self, 
-                 aggdata, 
-                 samples, 
-                 features, 
-                 label, 
-                 regulL2=1.0,
-                 ss = None,
-                 nbPartitions = 1000,
-                 rescaling = False
-                ):
+    def __init__(self, aggdata, samples, features, label, regulL2=1.0, ss=None, nbPartitions=1000, rescaling=False):
         aggdata.aggDisplays[label].feature._fid = len(features)
         super().__init__(aggdata, features)
 
@@ -60,13 +52,13 @@ class MultinomialAggLogistic(BaseAggModel):
 
         self.ss = ss
         if self.ss is not None:
-            self.rdd, self.rdds = MultinomialAggLogistic.parallelize( self.samples, ss , nbPartitions)
-            #self.rdd = ss.sparkContext.parallelize( self.samples , nbPartitions ).cache()
+            self.rdd, self.rdds = MultinomialAggLogistic.parallelize(self.samples, ss, nbPartitions)
+            # self.rdd = ss.sparkContext.parallelize( self.samples , nbPartitions ).cache()
             self.buildConstantBroadcast()
-            
+
         self.globalRescaling = self.aggdata.Nbdisplays / self.nbsamples
         self.setRescalingRatios()
-            
+
     def buildConstantBroadcast(self):
         coefsv, coefsv2, offsets, otherfeatureid, modulos = self.exportWeights()
         modalities = self.modalities
@@ -112,62 +104,63 @@ class MultinomialAggLogistic(BaseAggModel):
         return slices
 
     @staticmethod
-    def parallelize( x, ss , totalnbpartitions):
-        nbslices =  sys.getsizeof( x ) // (256_000_112//10)  # crashed when the data size was around 256Mo
-        
+    def parallelize(x, ss, totalnbpartitions):
+        nbslices = sys.getsizeof(x) // (256_000_112 // 10)  # crashed when the data size was around 256Mo
+
         if nbslices < 1:
-            nbslices  = 1
-        slices = MultinomialAggLogistic.splitInSlices(x, x.shape[0] // nbslices )
-        
+            nbslices = 1
+        slices = MultinomialAggLogistic.splitInSlices(x, x.shape[0] // nbslices)
+
         nbpartitions = totalnbpartitions // nbslices
         if nbpartitions < 1:
             nbpartitions = 1
         fullrdd = None
         rdds = []
         for s in slices:
-            rdd = ss.sparkContext.parallelize(s , nbpartitions).cache()
+            rdd = ss.sparkContext.parallelize(s, nbpartitions).cache()
             rdd.count()
-            rdds.append( rdd ) 
+            rdds.append(rdd)
             if fullrdd is None:
                 fullrdd = rdd
             else:
                 fullrdd = fullrdd.union(rdd)
-                
-        return fullrdd , rdds
-                    
-    def pysparkComputePdataInternal(self): 
+
+        return fullrdd, rdds
+
+    def pysparkComputePdataInternal(self):
         paramBroadcast = self.ss.sparkContext.broadcast(self.parameters)
         constantBroadcast = self.constantBroadcast
-        
-        def tomapOnPartitions( iterator):
+
+        def tomapOnPartitions(iterator):
             try:
                 x = np.stack(iterator)
             except:
-                return # happens on empty partitions            
+                return  # happens on empty partitions
             coefsv, coefsv2, offsets, otherfeatureid, modulos, modalities = constantBroadcast.value
             paramsVector = paramBroadcast.value
             result = ExpectedK(x, coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector)
-            yield result        
-        sums = self.rdd.mapPartitions( tomapOnPartitions )
-        
-        nbMos = sys.getsizeof( self.parameters ) * self.rdd.getNumPartitions() / 1000 / 1000
+            yield result
+
+        sums = self.rdd.mapPartitions(tomapOnPartitions)
+
+        nbMos = sys.getsizeof(self.parameters) * self.rdd.getNumPartitions() / 1000 / 1000
         if nbMos > 1000:
-            result = sums.treeReduce(np.add, depth=3 )
+            result = sums.treeReduce(np.add, depth=3)
         elif nbMos > 100:
-            result = sums.treeReduce(np.add, depth=2 )
+            result = sums.treeReduce(np.add, depth=2)
         else:
             result = sums.reduce(np.add)
-        try:  
+        try:
             paramBroadcast.destroy()
         except:
-            print('failed:: paramBroadcast.destroy()')
-        return result    
-    
+            print("failed:: paramBroadcast.destroy()")
+        return result
+
     def computePdataInternal(self, para=True):
-        
-        if( self.ss is not None):
+
+        if self.ss is not None:
             return self.pysparkComputePdataInternal()
-        
+
         coefsv, coefsv2, offsets, otherfeatureid, modulos = self.exportWeights()
         modalities = self.modalities
         paramsVector = self.parameters
@@ -200,71 +193,73 @@ class MultinomialAggLogistic(BaseAggModel):
     def pysparkfinalize(self):
         paramBroadcast = self.ss.sparkContext.broadcast(self.parameters)
         constantBroadcast = self.constantBroadcast
-        def tomapOnPartitions( iterator):
+
+        def tomapOnPartitions(iterator):
             coefsv, coefsv2, offsets, otherfeatureid, modulos, modalities = constantBroadcast.value
             paramsVector = paramBroadcast.value
             try:
                 x = np.stack(iterator)
             except:
-                return # happens on empty partitions                
+                return  # happens on empty partitions
             # compile numba
-            y = SampleFromKernel( x[:2,:], coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector)
+            y = SampleFromKernel(x[:2, :], coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector)
             # really run computation
-            y = SampleFromKernel( x , coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector)
-            #x = np.c_[x,y]
+            y = SampleFromKernel(x, coefsv, coefsv2, offsets, modulos, otherfeatureid, modalities, paramsVector)
+            # x = np.c_[x,y]
             yield y
-        y = self.rdd.mapPartitions( tomapOnPartitions ).collect()
-        #a = []
-        #for fid in range( len(self.features  )+1):
+
+        y = self.rdd.mapPartitions(tomapOnPartitions).collect()
+        # a = []
+        # for fid in range( len(self.features  )+1):
         #    a.append (np.array (result.map(lambda x : x[fid]).collect())) # collect all at once => crashing spark
-        #a = np.vstack(a).transpose()
-        
-        try:  
+        # a = np.vstack(a).transpose()
+
+        try:
             paramBroadcast.destroy()
         except:
-            print('failed:: paramBroadcast.destroy()')        
-        #result.unpersist()
-        y = np.hstack(y) 
-        return  np.c_[ self.samples ,y]
-    
+            print("failed:: paramBroadcast.destroy()")
+        # result.unpersist()
+        y = np.hstack(y)
+        return np.c_[self.samples, y]
+
     def setRescalingRatios(self):
         if True:
             from matplotlib import pyplot as plt
+
             preds = self.computePdata()
-            w = list( self.weights.values())[-1] 
+            w = list(self.weights.values())[-1]
             encoding = w.feature
-            phi_x_samples = encoding.marginalize( preds    [w.indices] , self.label )
-            phi_x_train   = encoding.marginalize( self.Data[w.indices] , self.label )
-            ratio = (phi_x_samples+1) / (phi_x_train+1)       
+            phi_x_samples = encoding.marginalize(preds[w.indices], self.label)
+            phi_x_train = encoding.marginalize(self.Data[w.indices], self.label)
+            ratio = (phi_x_samples + 1) / (phi_x_train + 1)
             plt.figure()
-            plt.plot( ratio )
-            plt.title("Rescaling : " + str(w) )
+            plt.plot(ratio)
+            plt.title("Rescaling : " + str(w))
             plt.show()
-        if self.rescaling :
+        if self.rescaling:
             self.rescalingRatio = self.computeRescalingRatio()
         else:
             self.rescalingRatio = np.ones(len(self.parameters))
-    
-    
+
     def computeRescalingRatio(self):
         preds = self.computePdata()
         ratio = np.ones(len(preds))
         for w in self.weights.values():
-            if not "CrossFeatureEncoding" in str(type( w.feature )):
+            if not "CrossFeatureEncoding" in str(type(w.feature)):
                 continue
-            ratio[w.indices] = self.cfRatio(preds,w)
+            ratio[w.indices] = self.cfRatio(preds, w)
         return ratio
 
     def cfRatio(self, preds, w):
         encoding = w.feature
-        phi_x_samples = encoding.marginalize( preds    [w.indices] , self.label )
-        phi_x_train   = encoding.marginalize( self.Data[w.indices] , self.label )
-        ratio_f1 = (phi_x_samples+1) / (phi_x_train+1)                
-        values = encoding.modalitiesOtherFeature( self.label )
+        phi_x_samples = encoding.marginalize(preds[w.indices], self.label)
+        phi_x_train = encoding.marginalize(self.Data[w.indices], self.label)
+        ratio_f1 = (phi_x_samples + 1) / (phi_x_train + 1)
+        values = encoding.modalitiesOtherFeature(self.label)
         return ratio_f1[values]
-    
+
     def computeGradient(self):  # grad of loss
-        preds = self.computePdata() 
+        preds = self.computePdata()
         gradient = -self.Data + preds
         gradient = -self.Data * np.minimum(1, self.rescalingRatio) + preds / np.maximum(1, self.rescalingRatio)
         gradient += 2 * self.parameters * self.regulL2
@@ -306,30 +301,28 @@ class MultinomialAggLogistic(BaseAggModel):
     def clean(self):
         if self.ss is not None:
             try:
-                self.constantBroadcast.destroy()        
+                self.constantBroadcast.destroy()
             except:
-                print('failed:: constantBroadcast.destroy()')
+                print("failed:: constantBroadcast.destroy()")
             for rdd in self.rdds:
                 try:
                     rdd.unpersist()
                 except:
-                    print('failed:: rdd.unpersist()')
+                    print("failed:: rdd.unpersist()")
 
-                
-                
-                
-class LogisticOnMultinomialSamples():
+
+class LogisticOnMultinomialSamples:
     def __init__(
         self,
         aggdata: AggDataset,
         config: AggMRFModelParams,
         ss: Optional[SparkSession] = None,
-        nbIters = 100,
-        savename = None
+        nbIters=100,
+        savename=None,
     ):
         if config.maxNbRowsPerSlice == 25:
             config.maxNbRowsPerSlice = 500  ## More raisonable default value
-        
+
         self.aggdata = aggdata
         self.config = config
         self.ss = ss
@@ -339,53 +332,55 @@ class LogisticOnMultinomialSamples():
             savename = f"Multinomials_{np.random.randint(10000000)}"
         self.savename = savename
         self.features = self.config.features
-        
-        self.nbPartitions  = max(1, self.config.nbSamples // self.config.maxNbRowsPerSlice)
-        print( f"nbPartitions = {self.nbPartitions}" )
-        
-        if os.path.isfile(self.savename +".npy" ):
-            self.samples = np.load( self.savename +".npy" )
-            print( f"Found samples with {self.nbFeaturesInSamples()} features  shape={self.samples.shape}") 
-        else:    
+
+        self.nbPartitions = max(1, self.config.nbSamples // self.config.maxNbRowsPerSlice)
+        print(f"nbPartitions = {self.nbPartitions}")
+
+        if os.path.isfile(self.savename + ".npy"):
+            self.samples = np.load(self.savename + ".npy")
+            print(f"Found samples with {self.nbFeaturesInSamples()} features  shape={self.samples.shape}")
+        else:
             self.samples = None
         self.modelParams = {}
-        
-        
+
     def nbFeaturesInSamples(self):
         if self.samples is None:
             return 1
         return self.samples.shape[1]
-    
+
     def fit(self):
         while self.nbFeaturesInSamples() < len(self.features):
             self.fitMultinomial()
-         
-        self.agglogistic = AggLogistic( self.aggdata, self.features  ,
-                                       clicksCfs = self.config.clicksCfs,
-                                       regulL2 = self.config.regulL2Click )
+
+        self.agglogistic = AggLogistic(
+            self.aggdata, self.features, clicksCfs=self.config.clicksCfs, regulL2=self.config.regulL2Click
+        )
         alpha = 0.5 / len(self.agglogistic.clickWeights)
-        self.agglogistic.fit( self.samples.transpose() , nbIter= self.nbIters , alpha=alpha)
-        
-    def predictDF(self,df,name = 'p'):
-        return self.agglogistic.predictDF(df,name)
-        
+        self.agglogistic.fit(self.samples.transpose(), nbIter=self.nbIters, alpha=alpha)
+
+    def predictDF(self, df, name="p"):
+        return self.agglogistic.predictDF(df, name)
+
     def fitMultinomial(self):
         nbf = self.nbFeaturesInSamples()
         samples = self.samples
         if samples is None:
             samples = self.config.nbSamples
         label = self.features[nbf]
-        self.multinomial = MultinomialAggLogistic( self.aggdata, samples, 
-                                              self.features[:nbf], label , 
-                                              ss=self.ss, nbPartitions=self.nbPartitions,
-                                              rescaling = self.config.multinomialRescaling)
-        print( f"Starting fit of { label } from {nbf} previous features"  ) 
-        self.multinomial.fit( self.nbIters )
+        self.multinomial = MultinomialAggLogistic(
+            self.aggdata,
+            samples,
+            self.features[:nbf],
+            label,
+            ss=self.ss,
+            nbPartitions=self.nbPartitions,
+            rescaling=self.config.multinomialRescaling,
+        )
+        print(f"Starting fit of { label } from {nbf} previous features")
+        self.multinomial.fit(self.nbIters)
         x = self.multinomial.finalize()
         self.samples = x
-        np.save( self.savename , self.samples )         
+        np.save(self.savename, self.samples)
         self.multinomial.clean()
         if self.ss is not None:
             self.ss.catalog.clearCache()
-        
-        

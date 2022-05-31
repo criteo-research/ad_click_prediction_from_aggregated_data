@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional
+
 try:
     from pyspark.sql import DataFrame
     import pyspark.sql.functions as F
@@ -73,7 +74,6 @@ class RawFeatureMapping:
         if type(df) is pd.DataFrame:
             return self.MapPandas(df)
         return self.MapSpark(df)
-        
 
     # def MapSpark(self, df: DataFrame) -> DataFrame:
     def MapSpark(self, df):
@@ -98,16 +98,15 @@ class RawFeatureMapping:
         df["d"] = 1
         df = df.groupby(name).sum()
         df = df.reset_index()
-        return RawFeatureMapping.BuildCtrBucketsFromAggDf( name, df, logbase, nbStd, gaussianStd)
+        return RawFeatureMapping.BuildCtrBucketsFromAggDf(name, df, logbase, nbStd, gaussianStd)
 
     @staticmethod
     def BuildCtrBucketsFromAggDf(name: str, df, logbase, nbStd, gaussianStd):
         dicoModalityToId = RawFeatureMapping.ctrBucketsMapping(name, df, logbase, nbStd, gaussianStd)
         return RawFeatureMapping(name, dicoModalityToId)
-    
+
     @staticmethod
     def ctrBucketsMapping(f, df, logbase, nbStd, gaussianStd):
-
         def getThreesholds(gaussianStd, maxN=1_000_000, nbStd=1.0):
             ts = []
             c = 1 + gaussianStd
@@ -117,7 +116,7 @@ class RawFeatureMapping:
                 ts.append(c)
             return np.array(ts)
 
-        allThreeshold = getThreesholds(gaussianStd , df.click.max() * logbase, nbStd)
+        allThreeshold = getThreesholds(gaussianStd, df.click.max() * logbase, nbStd)
         prior = df.click.sum() / df.d.sum()
         df["roundedD"] = roundedD = logbase ** (1 + np.floor(np.log10(df.d) / np.log10(logbase)))
         d = df.d.values

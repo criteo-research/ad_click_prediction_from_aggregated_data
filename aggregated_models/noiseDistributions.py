@@ -65,9 +65,7 @@ def expectedNoise_ByIntegration(observedCount, poisson, noiseDistribution, maxno
     return a / b
 
 
-def expectedGaussianApprox(observedCount, poissonExpect, sigma, 
-                           scaleFactor = 1.0,
-                           nbiters=10, minvalue=0.01):
+def expectedGaussianApprox(observedCount, poissonExpect, sigma, scaleFactor=1.0, nbiters=10, minvalue=0.01):
     # approximates E(G | G+P = observedCount ; G~Gaussian(sigma) ; P~Poisson(poisson)  ) by numeric integration
     # by solving:    n+sigma²ln(n) = observed +sigma²ln(poissonExpect)
     # indeed:
@@ -77,9 +75,9 @@ def expectedGaussianApprox(observedCount, poissonExpect, sigma,
 
     # in practical cases poissonExpect is actaully scaled (because it is computed from less samples than the obeervedCount) . We remove this scaling to get a true Poisson distrib, and thus also scale the observed count and sigma of gaussian noise
     sigma = sigma / scaleFactor
-    observedCount = observedCount/scaleFactor
-    poissonExpect = poissonExpect/scaleFactor    
-    
+    observedCount = observedCount / scaleFactor
+    poissonExpect = poissonExpect / scaleFactor
+
     s2 = sigma * sigma
     y = observedCount + s2 * np.log(poissonExpect + 0.001)
 
@@ -95,6 +93,8 @@ def expectedGaussianApprox(observedCount, poissonExpect, sigma,
 
     g = observedCount - n
     return g
+
+
 # typo kept for retrocompatibility
 expectedGaussiaApprox = expectedGaussianApprox
 
@@ -124,89 +124,89 @@ def expectedLaplaceAffineApprox(observedCount, poisson, epsilon):
     return observedCount - expectedPoisson
 
 
+def vectorizedLineSearch(f, mins, maxs, nbiters=100):
 
-def vectorizedLineSearch( f , mins, maxs, nbiters = 100 ):
-    
     mins = mins * 1.0
     maxs = maxs * 1.0
-    
+
     fmins = f(mins)
     fmaxs = f(maxs)
-    
-    if any ( fmins*fmaxs > 0) : 
-        raise( "wrong signs" )
-    
-    for i in range( 0, nbiters ):
-        means = (mins+maxs) / 2.0
+
+    ind_wrong_signs = np.where(fmins * fmaxs > 0)
+    if any(fmins * fmaxs > 0):
+        raise (f"wrong signs  ")
+
+    for i in range(0, nbiters):
+        means = (mins + maxs) / 2.0
         fmeans = f(means)
 
-        #print(i,  mins, maxs, fmins, fmeans,  fmaxs )
-        
-        index_replace_min = np.where (fmins * fmeans > 0 )
-        index_replace_max = np.where (fmins * fmeans <= 0 )
-        mins[ index_replace_min ] = means[index_replace_min]
-        maxs[ index_replace_max ] = means[index_replace_max]
-        fmins[ index_replace_min ] = fmeans[index_replace_min]
-        fmaxs[ index_replace_max ] = fmeans[index_replace_max]
+        # print(i,  mins, maxs, fmins, fmeans,  fmaxs )
+
+        index_replace_min = np.where(fmins * fmeans > 0)
+        index_replace_max = np.where(fmins * fmeans <= 0)
+        mins[index_replace_min] = means[index_replace_min]
+        maxs[index_replace_max] = means[index_replace_max]
+        fmins[index_replace_min] = fmeans[index_replace_min]
+        fmaxs[index_replace_max] = fmeans[index_replace_max]
+
+    means = (mins + maxs) / 2
+    return means
 
 
-    means = (mins+maxs) / 2
-    return means    
-
-
-def expectedGaussianKnowingDataPlusNoiseAndSampledDataExpect(noisyObservedCount, 
-                                                             scaledPrediction, 
-                                                             sigma, 
-                                                             N,  # number of samples
-                                                             M,  # number of Gibbs samples
-                                                             nbiters = 50,
-                                                         minvalue=0.01):
+def expectedGaussianKnowingDataPlusNoiseAndSampledDataExpect(
+    noisyObservedCount,
+    scaledPrediction,
+    sigma,
+    N,  # number of samples
+    M,  # number of Gibbs samples
+    nbiters=50,
+    minvalue=0.01,
+):
     # approximates E(G | G+A = noisyObservedCount ;
-    #                    G~Gaussian(sigma) ; 
-    #                    A~Binomial( lambda , N ) ; 
+    #                    G~Gaussian(sigma) ;
+    #                    A~Binomial( lambda , N ) ;
     #                    lambda ~ beta(  p , M-p  )
     #              with p :=  scaledPrediction * M / N
     # by solving:  g+ sigma² log( 1 + p /(d-g)) = sigma² log( 1 + M /( N -d+g ) )
     #
     # Why?
-    # we first approximate the expectation by a mode: 
+    # we first approximate the expectation by a mode:
     #  E(G | G+A = noisyObservedCount )~= Argmax_g P(G =g | G+A = noisyObservedCount )
     # and we can write:
-    #  Argmax_g P(G =g | G+A = noisyObservedCount ) propto P( G=g ) P( A = noisyObservedCount - g)  
+    #  Argmax_g P(G =g | G+A = noisyObservedCount ) propto P( G=g ) P( A = noisyObservedCount - g)
     #  We need a formula for P( A = noisyObservedCount - g):
-    #  - A follows a binomial bistribution, of parameters n  and lambda , with: 
+    #  - A follows a binomial bistribution, of parameters n  and lambda , with:
     #       - n the number of samples in the agg data
     #       - lambda the propability of this projection according to the model
-    #  so P(A=a  | lambda) =  ... binomial formula 
+    #  so P(A=a  | lambda) =  ... binomial formula
     #  problem: we do not know lambda exactly! we only have an estimate built from M Gibbs samples of the model
     #  more precisely: we have M Gibbs samples, and among them p = scaledPrediction * M *1.0 / N are positive
-    #  We thus may use a beta prior on lambda : beta(p , M-p) 
+    #  We thus may use a beta prior on lambda : beta(p , M-p)
     #
     # we now need to solve:  Armax_g P(G=g) Sum_{lambda in [0,1]}   P(A=a  | lambda) . beta(p , M-p)
-    # the integral is a the form : int_[0,1] x^a (1-x)^b dx 
+    # the integral is a the form : int_[0,1] x^a (1-x)^b dx
     #  we use int_[0,1] x^a (1-x)^b dx  = ( integration par parties + recurence ) = a!b!/( a+b+ )!
     #
-    #  using log(k!) ~= n^n e-n  , writing that dP/dg = 0, and doing the caclculus, we find the formula: 
+    #  using log(k!) ~= n^n e-n  , writing that dP/dg = 0, and doing the caclculus, we find the formula:
     #  g+ sigma² log( 1 + p /(d-g)) = sigma² log( 1 + M /( N -d+g ) ) = 0
-    
+
     from scipy import optimize
-    
+
     d = noisyObservedCount
-    scaledPrediction[scaledPrediction<=0 ] = 0.01
-    p = scaledPrediction * M *1.0 / N
+    scaledPrediction[scaledPrediction <= 0] = 0.01
+    p = scaledPrediction * M * 1.0 / N
     s2 = sigma * sigma
-        
+
     def f(x):
-        return x + s2* np.log( 1 + p /(d-x)) - s2 *  np.log( 1 + (M - p) /( N -d+x ) ) 
+        return x + s2 * np.log(1 + p / (d - x)) - s2 * np.log(1 + (M - p) / (N - d + x))
+
     eps = 0.000001
-    
-    mins = d-N +eps
+
+    mins = d - N + eps
     maxs = d - eps
 
-    #print( f(mins) )
-    #print( f(maxs) )
-    
-    myroot = vectorizedLineSearch( f , mins, maxs, nbiters = nbiters )
-    return myroot
+    # print( f(mins) )
+    # print( f(maxs) )
 
-    
+    myroot = vectorizedLineSearch(f, mins, maxs, nbiters=nbiters)
+    return myroot

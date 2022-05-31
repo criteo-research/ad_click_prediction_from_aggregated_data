@@ -18,12 +18,17 @@ from aggregated_models.noiseDistributions import expectedGaussianKnowingDataPlus
 
 
 class AggLogistic(BaseAggModel):
-    def __init__(self, aggdata, features, 
-                 clicksCfs="*&*", regulL2=1.0, rescaling=True,
-                 noiseModelScaling = None,
-                 sigma = None,
-                 modelDataSamplingWithNoise = False 
-                ):
+    def __init__(
+        self,
+        aggdata,
+        features,
+        clicksCfs="*&*",
+        regulL2=1.0,
+        rescaling=True,
+        noiseModelScaling=None,
+        sigma=None,
+        modelDataSamplingWithNoise=False,
+    ):
         super().__init__(aggdata, features)
         self.regulL2 = regulL2
         self.clicksCfs = CrossFeaturesSet.parseCFNames(self.features, clicksCfs)
@@ -32,19 +37,19 @@ class AggLogistic(BaseAggModel):
         self.initParameters()
         self.nbCoefs = sum([w.feature.Size for w in self.clickWeights.values()])
         self.Data = self.getAggDataVector(self.clickWeights, self.clickProjections)
-        
-        self.Data = np.maximum( self.Data, 0) 
+
+        self.Data = np.maximum(self.Data, 0)
         self.rescaling = rescaling
         self.nbIters = 0
-        
+
         if noiseModelScaling is not None and sigma is None:
-            if "variance" in aggdata.aggregations   :
+            if "variance" in aggdata.aggregations:
                 variancesProjections = {var: aggdata.aggregations["variance"][var] for var in self.fs}
-                variance = self.getAggDataVector(self.clickWeights, variancesProjections )
-                sigma = np.sqrt( variance )
+                variance = self.getAggDataVector(self.clickWeights, variancesProjections)
+                sigma = np.sqrt(variance)
                 sigma[sigma == 0] = 0.01
             else:
-                print(  "variance not found inaggdata.aggregations. Cannot compute sigma.  Missconfig ?" )
+                print("variance not found inaggdata.aggregations. Cannot compute sigma.  Missconfig ?")
         if sigma is not None and noiseModelScaling is None:
             noiseModelScaling = 1
         self.sigma = sigma
@@ -85,12 +90,12 @@ class AggLogistic(BaseAggModel):
         if self.rescaling:
             self.displaysProjections = {var: self.aggdata.aggDisplays[var] for var in self.fs}
             self.aggregatedDisplays = self.getAggDataVector(self.clickWeights, self.displaysProjections)
-            self.aggregatedDisplays = np.maximum( self.aggregatedDisplays, 0) 
-            
+            self.aggregatedDisplays = np.maximum(self.aggregatedDisplays, 0)
+
             self.aggregatedDisplaysInSamples = self.project(np.ones(self.nbsamples))
             self.rescalingRatio = (self.aggregatedDisplaysInSamples + 1) / (self.aggregatedDisplays + 1)
-            
-            self.rescalingRatio[ self.aggregatedDisplays  == 0 ] = 0
+
+            self.rescalingRatio[self.aggregatedDisplays == 0] = 0
 
     def predictDFinternal(self, df, pred_col_name: str):
         dotprods = self.dotproductsOnDF(self.clickWeights, df) + self.lambdaIntercept
@@ -136,21 +141,22 @@ class AggLogistic(BaseAggModel):
         preds = self.getPredictionsVector()
         gradient = -self.Data + preds
         if self.rescaling:
-            #gradient = -self.Data * np.minimum(1, self.rescalingRatio) + preds / np.maximum(1, self.rescalingRatio)
-            
+            # gradient = -self.Data * np.minimum(1, self.rescalingRatio) + preds / np.maximum(1, self.rescalingRatio)
+
             c_corrected = self.Data * self.rescalingRatio
-            
+
             if self.sigma is not None:
                 if self.modelDataSamplingWithNoise:
                     expedctedNoise = expectedGaussianKnowingDataPlusNoiseAndSampledDataExpect(
-                            c_corrected, preds, self.sigma ,  self.globalRescaling )
+                        c_corrected, preds, self.sigma, self.globalRescaling
+                    )
                 else:
-                    expedctedNoise = expectedGaussianApprox (  c_corrected, preds, self.sigma )                  
-                c_corrected -= expedctedNoise * self.noiseModelScaling           
+                    expedctedNoise = expectedGaussianApprox(c_corrected, preds, self.sigma)
+                c_corrected -= expedctedNoise * self.noiseModelScaling
 
             gradient = -c_corrected + preds
-            
-            gradient[  self.rescalingRatio <= 0 ] = 0  # No gradient where data are crasy
+
+            gradient[self.rescalingRatio <= 0] = 0  # No gradient where data are crasy
 
         gradient += 2 * self.parameters * self.regulL2
         self.normgrad = sum(gradient * gradient)
@@ -168,7 +174,7 @@ class AggLogistic(BaseAggModel):
         return 1 / (self.regulL2 * 2 + preds)
 
     def fit(self, train, nbIter=50, alpha=0.01):
-        if not hasattr(self, 'samples'):
+        if not hasattr(self, "samples"):
             self.prepareFit(train)
         self.fitSimple(nbIter, alpha)
 

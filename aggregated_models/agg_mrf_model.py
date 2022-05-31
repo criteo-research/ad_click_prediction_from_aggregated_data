@@ -51,6 +51,7 @@ class AggMRFModelParams:
     modifiedGradient: bool = True
     separateSamplesForNoise: bool = False
     useBetaPrior: bool = False
+    projectNoiseGradient: bool = False
     modifiedGradientForNoise: bool = True
     gaussiansigma: float = 0
     gibbsMaxNbModalities: int = 1
@@ -61,7 +62,7 @@ class AggMRFModelParams:
 
     # current nb iterations of the model. Updated during training.
     nbIters: int = 0
-        
+
     multinomialRescaling: bool = False
 
 
@@ -177,7 +178,7 @@ class AggMRFModel(BaseAggModel):
 
     def setSamples(self):
         self.samples = self.buildSamples()
-        if self.config_params.separateSamplesForNoise: 
+        if self.config_params.separateSamplesForNoise:
             self.samplesForNoise = self.buildSamples()
 
     @property
@@ -320,8 +321,8 @@ class AggMRFModel(BaseAggModel):
 
     def update(self):
         self.predictinternal(self.samples)
-        if self.config_params.separateSamplesForNoise: 
-            self.predictinternal(self.samplesForNoise)        
+        if self.config_params.separateSamplesForNoise:
+            self.predictinternal(self.samplesForNoise)
 
     def updateSamplesWithGibbs(self, samples):
         samples.UpdateSampleWithGibbs(self, self.nbGibbsIter)
@@ -372,13 +373,16 @@ class AggMRFModel(BaseAggModel):
             print("exception while computing predictions. Retrying:")
             predictions = self.getPredictionsVector(samples)
 
-        noise = self.Data * 0    
+        noise = self.Data * 0
         if self.noiseDistribution is not None:
             if self.config_params.separateSamplesForNoise:
-                noise = self.expectedNoise( None, self.samplesForNoise)
+                noise = self.expectedNoise(None, self.samplesForNoise)
             else:
                 noise = self.expectedNoise(predictions, samples)
 
+            if self.config_params.projectNoiseGradient:
+                proj = self.project(self.Data - noise)
+                noise = self.Data - proj
 
         gradient = -self.Data + predictions + noise  # - (data-noise - preds)
 
@@ -394,6 +398,7 @@ class AggMRFModel(BaseAggModel):
                     clicks -= noise[wc.indices]
                     displays[displays < 0] = 0  # Should not happen ?
                     clicks[clicks < 0] = 0
+
                 pdisplays = predictions[wd.indices]
                 pclicks = predictions[wc.indices]
 
@@ -419,11 +424,10 @@ class AggMRFModel(BaseAggModel):
     def expectedNoiseIndepApprox(self, predictions, samples=None):
         if predictions is None:
             predictions = self.getPredictionsVector(samples)
-        if self.config_params.useBetaPrior:  
-            return expectedGaussianKnowingDataPlusNoiseAndSampledDataExpect(  self.Data, predictions,
-                                  self.gaussiansigma,
-                                  self.aggdata.Nbdisplays,
-                                   self.config_params.nbSamples ) 
+        if self.config_params.useBetaPrior:
+            return expectedGaussianKnowingDataPlusNoiseAndSampledDataExpect(
+                self.Data, predictions, self.gaussiansigma, self.aggdata.Nbdisplays, self.config_params.nbSamples
+            )
         return self.noiseDistribution.expectedNoiseApprox(self.Data, predictions)
 
     def sampleNoiseProba(self, samples):
@@ -484,7 +488,7 @@ class AggMRFModel(BaseAggModel):
     def updateAllSamplesWithGibbs(self):
         self.updateSamplesWithGibbs(self.samples)
         if self.config_params.separateSamplesForNoise:
-            self.updateSamplesWithGibbs(self.samplesForNoise)        
+            self.updateSamplesWithGibbs(self.samplesForNoise)
 
     def buildSamplesRddFromSampleSet(self, samples):
         return self.buildSamplesRddFromData(samples.get_rows())
@@ -518,14 +522,15 @@ class AggMRFModel(BaseAggModel):
             self.config_params.nbIters += 1
             self.updateAllSamplesWithGibbs()
             if self.config_params.muStepSizeMultiplier is not None:
-                alpha = np.ones( len( self.parameters )) * alpha
-                alpha[:self.offsetClicks] *= self.config_params.muStepSizeMultiplier
+                alpha = np.ones(len(self.parameters)) * alpha
+                alpha[: self.offsetClicks] *= self.config_params.muStepSizeMultiplier
+
         Optimizers.simpleGradientStep(
-                self,
-                nbiter=nbIter,
-                alpha=alpha,
-                endIterCallback=endIterCallback,
-            )
+            self,
+            nbiter=nbIter,
+            alpha=alpha,
+            endIterCallback=endIterCallback,
+        )
 
     # export data useful to compute dotproduct
     def exportWeights(self, weights):
@@ -606,7 +611,7 @@ class AggMRFModel(BaseAggModel):
             parameters,
         ) = self.exportWeightsAll()
 
-        parameters = self.currentParams 
+        parameters = self.currentParams
 
         start = 0
         rows = samples.get_rows()
@@ -809,3 +814,57 @@ class AggMRFModel(BaseAggModel):
         rdd_reduced = rdd_key_value.reduceByKey(operator.add)
         projections = rdd_reduced.collectAsMap()
         return samples._rebuid_predictions(self, projections)
+
+    @staticmethod
+    def gradconstraints_varI(x, exportedDisplayWeights, modalitiesByVarId, varI):
+        (
+            allcoefsv,
+            allcoefsv2,
+            alloffsets,
+            allotherfeatureid,
+            allmodulos,
+        ) = exportedDisplayWeights
+        grad = x * 0
+        disp_coefsv = allcoefsv[varI]
+        disp_coefsv2 = allcoefsv2[varI]
+        disp_offsets = alloffsets[varI]
+        disp_otherfeatureid = allotherfeatureid[varI]
+        disp_modulos = allmodulos[varI]
+
+        modalities = modalitiesByVarId[varI]
+        indices_simple = modalities + alloffsets[varI][0]
+
+        for j in np.arange(0, len(disp_coefsv)):
+            varJ = disp_otherfeatureid[j]
+            modulo = disp_modulos[j]
+            modsJ = modalitiesByVarId[varJ] * disp_coefsv2[j]
+            mods = modalitiesByVarId[varI] * disp_coefsv[j]
+            crossmods = (np.add.outer(modsJ, mods) % modulo) + disp_offsets[j]
+
+            error = x[crossmods].sum(axis=0) - x[indices_simple]
+            error /= len(modsJ)
+            grad[indices_simple] += error
+            grad[crossmods] -= error[np.newaxis, :]
+        return grad
+
+    @staticmethod
+    def gradconstraints(x, exportedDisplayWeights, modalitiesByVarId):
+        grad = x * 0
+        fids = np.arange(0, len(exportedDisplayWeights[0]))
+        for i in fids:
+            grad += AggMRFModel.gradconstraints_varI(x, exportedDisplayWeights, modalitiesByVarId, i)
+        return grad
+
+    def project(self, x, nbiters=10, alpha=0.9):
+        (exportedDisplayWeights, exportedClickWeights, modalitiesByVarId, _) = self.exportWeightsAll()
+        for i in range(0, nbiters):
+            g = AggMRFModel.gradconstraints(x, exportedDisplayWeights, modalitiesByVarId)
+            gc = AggMRFModel.gradconstraints(x, exportedClickWeights, modalitiesByVarId)
+
+            g = g / (1 + np.linalg.norm(g))
+            gc = gc / (1 + np.linalg.norm(gc))
+            x = x - g * g.dot(x) * alpha
+            x = x - gc * gc.dot(x) * alpha
+
+            x[x < 0] = 0
+        return x
