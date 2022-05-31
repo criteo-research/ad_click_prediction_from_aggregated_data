@@ -6,6 +6,9 @@ import numpy as np
 from typing import List
 from dataclasses import dataclass
 import dataclasses
+from sklearn.model_selection import train_test_split
+from itertools import combinations 
+import matplotlib.pyplot as plt
 
 
 # Loading public "Criteo attribution dataset"
@@ -250,3 +253,117 @@ def build_dataset(name, dataset, samplingRate, splitOnDate):
             train[f] = train[f].apply(lambda x: x if x in keptcat7 else 0)
             valid[f] = valid[f].apply(lambda x: x if x in keptcat7 else 0)
     return train, valid
+
+
+
+
+##  Code for loading "adult" and "baking" datasets.
+
+
+def quant_centroid(array):
+    unic=np.unique(array)
+    decimal=(max(unic)-min(unic))/10
+    centroid=[round(min(unic) + i*decimal) for i in range(1,11)]
+    return(centroid)
+
+def from_num_to_cat(array,centroid):
+    new_array=np.zeros_like(array)
+    for i in range(len(array)):
+        if array[i]<=centroid[0]:
+            new_array[i]=centroid[0]
+        if array[i]>=centroid[8]:
+            new_array[i]=centroid[-1]
+        for j in range(8):
+            if array[i]>=centroid[j] and array[i]<=centroid[j+1] :
+                new_array[i]=centroid[j+1]
+    return(new_array) 
+
+
+def download_banking_dataset():
+    import os.path
+    if os.path.isfile('data/bank_dataset/bank-additional/bank-additional-full.csv'):
+        return
+    url = "https://archive.ics.uci.edu/ml/machine-learning-databases/00222/bank-additional.zip"
+    import urllib.request
+    urllib.request.urlretrieve(url, "data/bank_dataset.zip")
+    import zipfile
+    with zipfile.ZipFile("data/bank_dataset.zip", 'r') as zip_ref:
+        zip_ref.extractall("data/bank_dataset")
+    
+    
+def load_banking_dataset():
+    download_banking_dataset()
+    Bdata = pd.read_csv('data/bank_dataset/bank-additional/bank-additional-full.csv', sep=';', na_values='?',engine='python')
+    Bdata.rename(columns={'y': 'label'}, inplace=True)
+    Bdata["label"]  = 1 * (Bdata["label"] == "yes" )
+    Bfeatures=list(Bdata.columns[:-1])
+    Btrain, Btest = train_test_split(Bdata, test_size=0.2)
+    Btrain=Btrain.copy()
+    Btest=Btest.copy()
+
+    # Quantifying numerical data
+    Bnum_attributes = Btrain.select_dtypes(include=['float','int'])
+    for num in Bnum_attributes.columns[:-1]:
+        centroid=quant_centroid(Btrain[num])
+        Btrain[num]=from_num_to_cat(Btrain[num].values,centroid)
+        Btest[num]=from_num_to_cat(Btest[num].values,centroid)    
+                             
+    # Hashing data
+    dfBtrain=Btrain.copy()
+    dfBtest=Btest.copy()
+
+    for feat in Bfeatures:
+        dfBtrain[feat]=dfBtrain[feat].apply(hash)
+        dfBtest[feat]=dfBtest[feat].apply(hash)
+        
+    return  dfBtrain, dfBtest, Bfeatures
+
+
+def download_adult_dataset():
+    import os.path
+    import urllib.request
+    if not os.path.isfile('adult_data.csv'):
+        url = "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data"
+        print("downloading from " + url)
+        urllib.request.urlretrieve(url, "adult_data.csv")
+    if not os.path.isfile('adult_data_test.csv'):
+        url = "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.test"
+        print("downloading from " + url)
+        urllib.request.urlretrieve(url, "adult_data_test.csv")
+
+    
+def load_adult_dataset():
+    download_adult_dataset()
+    columns = ["age", "workClass", "fnlwgt", "education", "education-num","marital-status", "occupation", "relationship",
+              "race", "sex", "capital-gain", "capital-loss", "hours-per-week", "native-country", "label"]
+    Atrain = pd.read_csv('adult_data.csv', names=columns, 
+                 sep=' *, *', na_values='?',engine='python')
+    Atest  = pd.read_csv('adult_data_test.csv', names=columns, 
+                 sep=' *, *',skiprows=1, na_values='?',engine='python')        
+    
+    Atrain["label"]  = 1 * (Atrain["label"] == ">50K" )
+    Atest["label"]  = 1 * (Atest["label"] == ">50K" )
+
+    # Complete missing Data
+    #  cols=['workClass','occupation','native-country']
+    #  Atrain[cols]=Atrain[cols].fillna(Atrain.mode().iloc[0])
+    #  Atest[cols]=Atest[cols].fillna(Atest.mode().iloc[0])        
+
+    Afeatures=list(Atrain.columns[:-1])
+    # Quantifying numerical data
+    Anum_attributes = Atrain.select_dtypes(include=['float','int'])
+    for num in Anum_attributes.columns[:-1]:
+        centroid=quant_centroid(Atrain[num])
+        Atrain[num]=from_num_to_cat(Atrain[num].values,centroid)
+        Atest[num]=from_num_to_cat(Atest[num].values,centroid)    
+    
+    # Hashing data
+    dfAtrain=Atrain.copy()
+    dfAtest=Atest.copy()
+
+    for feat in Afeatures:
+        dfAtrain[feat]=dfAtrain[feat].apply(hash)
+        dfAtest[feat]=dfAtest[feat].apply(hash)
+    
+    return dfAtrain, dfAtest, Afeatures
+    
