@@ -1,10 +1,13 @@
+numba
+matplotlib
 pandas==1.1.3
 numpy
 pyspark-stubs==2.4
 py4j==0.10.7
-thx>=0.4.4
 dataclasses_json==0.4.2
 typing==3.7.4.3
 cluster-pack==0.2.4
 logging-python>=2.2
-dsl-metrics
+scipy
+sklearn
+joblib
