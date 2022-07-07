@@ -520,12 +520,13 @@ class AggMRFModel(BaseAggModel):
     def fit(self, nbIter=100, alpha=None):
         if alpha is None:
             alpha = 0.5 / len(self.clickWeights)
+        if self.config_params.muStepSizeMultiplier is not None:
+            alpha = np.ones(len(self.parameters)) * alpha
+            alpha[: self.offsetClicks] *= self.config_params.muStepSizeMultiplier
+
         def endIterCallback():
             self.config_params.nbIters += 1
             self.updateAllSamplesWithGibbs()
-            if self.config_params.muStepSizeMultiplier is not None:
-                alpha = np.ones(len(self.parameters)) * alpha
-                alpha[: self.offsetClicks] *= self.config_params.muStepSizeMultiplier
 
         Optimizers.simpleGradientStep(
             self,
