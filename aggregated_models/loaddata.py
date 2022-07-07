@@ -283,9 +283,11 @@ def download_banking_dataset():
     import os.path
     if os.path.isfile('data/bank_dataset/bank-additional/bank-additional-full.csv'):
         return
+    print("downloading banking dataset")
     url = "https://archive.ics.uci.edu/ml/machine-learning-databases/00222/bank-additional.zip"
     import urllib.request
     urllib.request.urlretrieve(url, "data/bank_dataset.zip")
+    print("uzipping banking dataset")
     import zipfile
     with zipfile.ZipFile("data/bank_dataset.zip", 'r') as zip_ref:
         zip_ref.extractall("data/bank_dataset")
@@ -297,6 +299,8 @@ def load_banking_dataset():
     Bdata.rename(columns={'y': 'label'}, inplace=True)
     Bdata["label"]  = 1 * (Bdata["label"] == "yes" )
     Bfeatures=list(Bdata.columns[:-1])
+    if "label" in Bfeatures:
+        raise("label found in features list")
     Btrain, Btest = train_test_split(Bdata, test_size=0.2)
     Btrain=Btrain.copy()
     Btest=Btest.copy()
@@ -341,8 +345,8 @@ def load_adult_dataset():
     Atest  = pd.read_csv('adult_data_test.csv', names=columns, 
                  sep=' *, *',skiprows=1, na_values='?',engine='python')        
     
-    Atrain["label"]  = 1 * (Atrain["label"] == ">50K" )
-    Atest["label"]  = 1 * (Atest["label"] == ">50K" )
+    Atrain["label"] = 1 * (Atrain["label"] .isin([">50K",">50K."]) )
+    Atest["label"]  = 1 * (Atest["label"].isin([">50K",">50K."]) )
 
     # Complete missing Data
     #  cols=['workClass','occupation','native-country']
