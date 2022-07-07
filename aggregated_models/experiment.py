@@ -8,7 +8,6 @@ from aggregated_models.agg_mrf_model import AggMRFModel, AggMRFModelParams
 from aggregated_models.aggdataset import AggDataset
 import numpy as np
 from pathlib import Path
-import thx.hadoop.hdfs_cache as hdfs
 import pandas as pd
 import gc
 

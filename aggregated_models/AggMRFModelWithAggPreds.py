@@ -4,7 +4,6 @@ import pandas as pd
 from aggregated_models.agg_mrf_model import *
 from aggregated_models.aggdataset import AggDataset
 
-from thx.hadoop.spark_config_builder import SparkSession
 from joblib import Parallel, delayed
 from aggregated_models.mrf_helpers import (
     fastGibbsSampleFromPY0_withAggPredictions,
@@ -18,7 +17,7 @@ class AggMRFModelWithAggPreds(AggMRFModel):
         config_params: AggMRFModelParams,
         theta0WithoutIntercept,
         theta0Intercept,
-        sparkSession: Optional[SparkSession] = None,
+        sparkSession = None,
         linkFunctionId: int = 1,  #  0 -> Identity  , 1 -> sigmoid, 2 -> exp
     ):
         self.theta0WithoutIntercept = theta0WithoutIntercept

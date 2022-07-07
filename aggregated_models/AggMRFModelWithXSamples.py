@@ -11,7 +11,6 @@ from aggregated_models.baseaggmodel import BaseAggModel, WeightsSet
 
 import logging
 from aggregated_models.aggdataset import AggDataset, FeaturesSet
-from thx.hadoop.spark_config_builder import SparkSession
 from aggregated_models.noiseDistributions import *
 
 from aggregated_models.agg_mrf_model import *
@@ -22,7 +21,7 @@ class AggMRFModelWithXSamples(AggMRFModel):
         self,
         aggdata: AggDataset,
         config_params: AggMRFModelParams,
-        sparkSession: Optional[SparkSession] = None,
+        sparkSession = None,
     ):
         super().__init__(aggdata, config_params, sparkSession)
 

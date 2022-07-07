@@ -28,7 +28,7 @@ from aggregated_models.FeatureEncodings import *
 import pyspark.sql.functions as F
 import pyspark.sql as ps
 import logging
-from thx.hadoop.spark_config_builder import create_remote_spark_session, SparkSession
+# from thx.hadoop.spark_config_builder import SparkSession
 
 
 _log = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ class AggMRFModel(BaseAggModel):
         self,
         aggdata: AggDataset,
         config_params: AggMRFModelParams,
-        sparkSession: Optional[SparkSession] = None,
+        sparkSession = None, # Optional[SparkSession]
     ):
         super().__init__(aggdata, config_params.features)
         self.config_params = config_params
@@ -741,7 +741,7 @@ class AggMRFModel(BaseAggModel):
     def load(
         base_local_dir: str,
         base_hdfs_dir: Optional[str] = None,
-        spark_session: Optional[SparkSession] = None,
+        spark_session = None, # Optional[SparkSession]
         loadSamples: bool = True,
     ):
 
