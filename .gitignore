@@ -124,3 +124,8 @@ adapt_template.sh
 .vscode/settings.json
 #IDEs
 .idea
+
+
+
+install_criteo.sh
+requirements_criteo.txt
