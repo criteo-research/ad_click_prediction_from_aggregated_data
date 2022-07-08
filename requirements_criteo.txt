@@ -1,4 +1,0 @@
-protobuf!=4.21.0
-thx>=0.4.4
-pyspark==2.4+criteo.2.11.1607362448
-cluster-pack==0.2.15
