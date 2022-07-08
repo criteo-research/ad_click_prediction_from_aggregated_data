@@ -224,17 +224,21 @@ def getDataset(name, forceSamplingRate=None, splitOnDate=None):
 
 
 def get_dataset(name, dataset, samplingRate, splitOnDate):
-    train_path = f"{name}_train_{samplingRate}_{splitOnDate}.parquet"
-    valid_path = f"{name}_valid_{samplingRate}_{splitOnDate}.parquet"
-    if not os.path.exists(train_path) or not os.path.exists(valid_path):
-        train, valid = build_dataset(name, dataset, samplingRate, splitOnDate)
-        train.to_parquet(train_path)
-        valid.to_parquet(valid_path)
+    use_parquet = False # set to False to avoid compatibility errors. 
+    # Change if your env supports parquet to cache the results and have faster runs.
+    if use_parquet:
+        train_path = f"{name}_train_{samplingRate}_{splitOnDate}.parquet"
+        valid_path = f"{name}_valid_{samplingRate}_{splitOnDate}.parquet"
+        if not os.path.exists(train_path) or not os.path.exists(valid_path):
+            train, valid = build_dataset(name, dataset, samplingRate, splitOnDate)
+            train.to_parquet(train_path)
+            valid.to_parquet(valid_path)
+        else:
+            train = pd.read_parquet(train_path)
+            valid = pd.read_parquet(valid_path)
+        return train, valid
     else:
-        train = pd.read_parquet(train_path)
-        valid = pd.read_parquet(valid_path)
-    return train, valid
-
+        return build_dataset(name, dataset, samplingRate, splitOnDate)
 
 def build_dataset(name, dataset, samplingRate, splitOnDate):
     train, valid, allvars = run(dataset, samplingRate, splitOnDate=splitOnDate, verbose=False)

@@ -3,8 +3,6 @@ from aggregated_models.FeatureEncodings import *
 
 import pandas as pd
 import pickle
-import pyspark.sql.functions as F
-
 
 def parseCFNames(features, crossfeaturesStr):
     cfs = parseCF(features, crossfeaturesStr)

@@ -8,14 +8,11 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
-import pyspark.sql as ps
-import pyspark.sql.functions as F
 from dataclasses import dataclass, asdict
 from joblib import Parallel, delayed
 from typing import Dict
 
 from aggregated_models.SampleSet import SampleSet, FullSampleSet
-from aggregated_models.SampleRdd import SampleRdd
 from aggregated_models.aggdataset import AggDataset
 from aggregated_models.noiseDistributions import *
 from aggregated_models import CrossFeaturesSet
@@ -23,13 +20,14 @@ from aggregated_models.baseaggmodel import BaseAggModel, WeightsSet
 from aggregated_models import Optimizers
 from aggregated_models.mrf_helpers import *
 from aggregated_models.FeatureEncodings import *
-
-
-import pyspark.sql.functions as F
-import pyspark.sql as ps
 import logging
-# from thx.hadoop.spark_config_builder import SparkSession
 
+try: 
+    import pyspark.sql as ps
+    import pyspark.sql.functions as F
+    from aggregated_models.SampleRdd import SampleRdd
+except: 
+    print("Warning:Failed to load pyspark. Maybe it is not installed in your environement? This is Ok if you plan to use only in-memory training.")
 
 _log = logging.getLogger(__name__)
 
@@ -74,6 +72,7 @@ class AggMRFModel(BaseAggModel):
         sparkSession = None, # Optional[SparkSession]
     ):
         super().__init__(aggdata, config_params.features)
+                
         self.config_params = config_params
         self.priorDisplays = config_params.priorDisplays
         self.exactComputation = config_params.exactComputation
